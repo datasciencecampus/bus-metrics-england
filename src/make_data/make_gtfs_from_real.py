@@ -1,3 +1,6 @@
+import logging
+from datetime import datetime
+import toml
 import os
 import glob
 import pandas as pd
@@ -14,12 +17,12 @@ class GTFS_Builder:
     GTFS folder is returned.
     """
 
-    def __init__(self):
-        self.today = "20230829"
-        self.weekday = "tuesday"
-        self.dir = "data/realtime/north_east_scoping_20230829"
-        self.timetable_exceptions = True
-        self.route_stop_threshold = 5
+    def __init__(self, config):
+        self.today = config["today"]
+        self.weekday = config["weekday"]
+        self.dir = config["dir"]
+        self.timetable_exceptions = config["timetable_exceptions"]
+        self.route_stop_threshold = config["route_stop_threshold"]
 
     def load_raw_realtime_data(self) -> (pd.DataFrame, pd.DataFrame):
         """
@@ -80,7 +83,8 @@ class GTFS_Builder:
 
         labelled_real = pd.concat([labelled_real, reclaimed_real])
 
-        return labelled_real, unlabelled_real
+        #        return labelled_real, unlabelled_real
+        return labelled_real, unlabelled_real, reclaimed_real
 
     def load_raw_timetable_data(self) -> pd.DataFrame:
         """
@@ -420,3 +424,37 @@ class GTFS_Builder:
         )  # noqa: E501
 
         return None
+
+
+if __name__ == "__main__":
+    # define session_id that will be used for log file and feedback
+    session_name = f"bus_gtfs_build_{format(datetime.now(), '%Y_%m_%d_%H:%M')}"
+    logger = logging.getLogger(__name__)
+    log_fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    logging.basicConfig(
+        level=logging.INFO,
+        format=log_fmt,
+        filename=f"log/{session_name}.log",
+        filemode="a",
+    )
+
+    # load toml config
+    config = toml.load("config.toml")["data_ingest"]
+
+    builder = GTFS_Builder(config)
+    logger.info(
+        "Loading all realtime data \
+                - separating labelled and unlabelled"
+    )
+    labelled_real, unlabelled_real = builder.load_raw_realtime_data()
+    # logger.info("Assigning trip_id & route_id by bus_id linkage")
+    # labelled_real, unlabelled_real = builder.reclaim_unlabelled_by_busid(labelled_real, unlabelled_real)    # noqa: E501
+    logger.info("Loading all timetable data")
+    timetable = builder.load_raw_timetable_data()
+    logger.info(
+        "Extract timetable data aligned to realtime activity \
+            - inject real times"
+    )
+    gtfs = builder.prepare_gtfs(labelled_real, timetable)
+    logger.info("Write updated GTFS files")
+    builder.write_gtfs(gtfs)
