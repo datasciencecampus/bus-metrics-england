@@ -7,6 +7,7 @@ import pandas as pd
 import geopandas as gpd
 from shapely.geometry import LineString
 import shutil
+import zipfile
 
 
 class GTFS_Builder:
@@ -15,6 +16,9 @@ class GTFS_Builder:
     Takes realtime and timetable data for a specified day, deduplicating
     and replacing timetabled times with actual realtime times. An updated
     GTFS folder is returned.
+
+    Args:
+        config (dict): data_ingest content of config file.
     """
 
     def __init__(self, config):
@@ -42,20 +46,20 @@ class GTFS_Builder:
 
         # deduplicated, labelled realtime data
         labelled_real = real.dropna(subset=["trip_id", "route_id"])
-        labelled_real.drop_duplicates(
-            subset=["bus_id", "time_transpond"], keep="first", inplace=True
+        labelled_real = labelled_real.drop_duplicates(
+            subset=["bus_id", "time_transpond"], keep="first"
         )
 
-        labelled_real.drop_duplicates(
-            subset=["trip_id", "current_stop"], keep="last", inplace=True
+        labelled_real = labelled_real.drop_duplicates(
+            subset=["trip_id", "current_stop"], keep="last"
         )
 
         # deduplicated, unlabelled realtime data
         unlabelled_real = real[
             (real["trip_id"].isna()) & (real["route_id"].isna())
         ]  # noqa: E501
-        unlabelled_real.drop_duplicates(
-            subset=["bus_id", "time_transpond"], keep="first", inplace=True
+        unlabelled_real = unlabelled_real.drop_duplicates(
+            subset=["bus_id", "time_transpond"], keep="first"
         )
 
         return labelled_real, unlabelled_real
@@ -345,7 +349,9 @@ class GTFS_Builder:
                 "trip_direction_name",
                 "vehicle_journey_code",
             ]
-        ].to_csv(f"{self.dir}/realtime_gtfs/trips.txt", index=False)
+        ].drop_duplicates().to_csv(
+            f"{self.dir}/realtime_gtfs/trips.txt", index=False
+        )  # noqa: E501
 
         # reverse-engineered stop_times.txt
         gtfs_temp[
@@ -373,7 +379,9 @@ class GTFS_Builder:
                 "route_long_name",
                 "route_type",
             ]
-        ].to_csv(f"{self.dir}/realtime_gtfs/routes.txt", index=False)
+        ].drop_duplicates().to_csv(
+            f"{self.dir}/realtime_gtfs/routes.txt", index=False
+        )  # noqa: E501
 
         cal_dates = pd.DataFrame(
             columns=["service_id", "date", "exception_type"]
@@ -422,6 +430,32 @@ class GTFS_Builder:
         shutil.copy(
             f"{self.dir}/gtfs/stops.txt", f"{self.dir}/realtime_gtfs/stops.txt"
         )  # noqa: E501
+
+        # List of .txt files to add to the .zip file
+        txt_files = [
+            "agency.txt",
+            "calendar.txt",
+            "calendar_dates.txt",
+            "feed_info.txt",
+            "routes.txt",
+            "shapes.txt",
+            "stop_times.txt",
+            "stops.txt",
+            "trips.txt",
+        ]
+
+        # Zips file's name
+        zip_file = f'{self.dir.split("/")[-1]}_real_gtfs.zip'
+
+        # Create a new .zip file
+        with zipfile.ZipFile(
+            f"{self.dir}/{zip_file}", "w", zipfile.ZIP_DEFLATED
+        ) as archive:
+            for txt_file in txt_files:
+                # Add each .txt file to the zip
+                archive.write(
+                    f"{self.dir}/realtime_gtfs/{txt_file}", arcname=txt_file
+                )  # noqa: E501
 
         return None
 
