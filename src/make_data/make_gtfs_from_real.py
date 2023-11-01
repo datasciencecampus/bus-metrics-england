@@ -4,10 +4,10 @@ import toml
 import os
 import glob
 import pandas as pd
-import geopandas as gpd
-from shapely.geometry import LineString
 import shutil
-import zipfile
+
+# from src.utils.stop_sequence import nearest_neighbor
+from src.utils.preprocessing import deduplicate, zip_files
 
 
 class GTFS_Builder:
@@ -24,11 +24,31 @@ class GTFS_Builder:
     def __init__(self, config):
         self.today = config["today"]
         self.weekday = config["weekday"]
-        self.dir = config["dir"]
+        self.region = config["region"]
+        self.dir = f"{config['dir']}/{self.region}/{self.today}"
+        self.output = config["output"]
         self.timetable_exceptions = config["timetable_exceptions"]
-        self.route_stop_threshold = config["route_stop_threshold"]
+        self.zip_gtfs = config["zip_gtfs"]
 
-    def load_raw_realtime_data(self) -> (pd.DataFrame, pd.DataFrame):
+    def load_raw_realtime_data(self) -> pd.DataFrame:
+        """
+        Collects all realtime data for individual day
+
+        Returns:
+            df (pandas df): unprocessed realtime data
+        """
+
+        to_dir = f"{self.dir}/realtime/"
+        # collate all realtime ingests to single dataframe
+        tables = os.path.join(to_dir, "realtime*.csv")  # noqa: E501
+        tables = glob.glob(tables)
+        df = pd.concat(map(pd.read_csv, tables), ignore_index=True)
+        df = df.iloc[:, 1:]
+        df = df.sort_values("time_ingest")
+        df.reset_index(drop=True, inplace=True)
+        return df
+
+    def split_realtime_data(self, df) -> (pd.DataFrame, pd.DataFrame):
         """
         Collects and concatenates all realtime data for specified day
 
@@ -37,61 +57,20 @@ class GTFS_Builder:
             unlabelled_real (pandas df): row with trip_id & route_id MISSING
         """
 
-        # collate all realtime ingests to single dataframe
-        tables = os.path.join(self.dir, "realtime*.csv")  # noqa: E501
-        tables = glob.glob(tables)
-        real = pd.concat(map(pd.read_csv, tables), ignore_index=True)
-        real = real.iloc[:, 1:]
-        real = real.sort_values("time_ingest")
+        labelled_real = unlabelled_real = df[
+            (~df["trip_id"].isna()) & (~df["route_id"].isna())
+        ]
 
-        # deduplicated, labelled realtime data
-        labelled_real = real.dropna(subset=["trip_id", "route_id"])
-        labelled_real = labelled_real.drop_duplicates(
-            subset=["bus_id", "time_transpond"], keep="first"
-        )
+        unlabelled_real = df[(df["trip_id"].isna()) & (df["route_id"].isna())]
 
-        labelled_real = labelled_real.drop_duplicates(
-            subset=["trip_id", "current_stop"], keep="last"
-        )
-
-        # deduplicated, unlabelled realtime data
-        unlabelled_real = real[
-            (real["trip_id"].isna()) & (real["route_id"].isna())
-        ]  # noqa: E501
-        unlabelled_real = unlabelled_real.drop_duplicates(
-            subset=["bus_id", "time_transpond"], keep="first"
+        unlabelled_real.to_csv(
+            f"{self.dir}/realtime/{self.region}_{self.today}_unlabelled.csv"
         )
         labelled_real.to_csv(
             f"{self.dir}/realtime/{self.region}_{self.today}_labelled.csv"
         )
 
         return labelled_real, unlabelled_real
-
-    def reclaim_unlabelled_by_busid(self, labelled_real, unlabelled_real):
-        """
-        ### NOT FUNCTIONAL YET ###
-        Assigns trip_id & route_id by common bus_id.
-
-        Returns:
-            labelled_real (pandas df): rows with trip_id & route_id
-            unlabelled_real (pandas df): row with trip_id & route_id MISSING
-        """
-        trips = labelled_real.set_index("bus_id")["trip_id"].to_dict()
-        unlabelled_real["trip_id"] = unlabelled_real["trip_id"].fillna(
-            unlabelled_real["bus_id"].map(trips)
-        )
-        routes = labelled_real.set_index("bus_id")["route_id"].to_dict()
-        unlabelled_real["route_id"] = unlabelled_real["route_id"].fillna(
-            unlabelled_real["bus_id"].map(routes)
-        )
-
-        reclaimed_real = unlabelled_real.dropna()
-        unlabelled_real = unlabelled_real[unlabelled_real["trip_id"].isna()]
-
-        labelled_real = pd.concat([labelled_real, reclaimed_real])
-
-        #        return labelled_real, unlabelled_real
-        return labelled_real, unlabelled_real, reclaimed_real
 
     def load_raw_timetable_data(self) -> pd.DataFrame:
         """
@@ -103,9 +82,11 @@ class GTFS_Builder:
             service_stops (pandas_df): all service stops
         """
 
+        to_dir = f"{self.dir}/timetable"
+
         # id services affected by exceptions today only
         calendar_dates = pd.read_csv(
-            f"{self.dir}/gtfs/calendar_dates.txt",
+            f"{to_dir}/calendar_dates.txt",
             dtype={"service_id": int, "date": int, "exception_type": int},
         )
         calendar_dates = calendar_dates[
@@ -121,7 +102,7 @@ class GTFS_Builder:
         )
 
         trips = pd.read_csv(
-            f"{self.dir}/gtfs/trips.txt",
+            f"{to_dir}/trips.txt",
             dtype={
                 "route_id": str,
                 "service_id": int,
@@ -134,7 +115,7 @@ class GTFS_Builder:
             },
         )
         stops = pd.read_csv(
-            f"{self.dir}/gtfs/stops.txt",
+            f"{to_dir}/stops.txt",
             dtype={
                 "stop_id": str,
                 "stop_code": str,
@@ -148,7 +129,7 @@ class GTFS_Builder:
             },
         )
         stop_times = pd.read_csv(
-            f"{self.dir}/gtfs/stop_times.txt",
+            f"{to_dir}/stop_times.txt",
             dtype={
                 "trip_id": str,
                 "arrival_time": str,
@@ -165,7 +146,7 @@ class GTFS_Builder:
         )
 
         routes = pd.read_csv(
-            f"{self.dir}/gtfs/routes.txt",
+            f"{to_dir}/routes.txt",
             dtype={
                 "route_id": str,
                 "agency_id": str,
@@ -191,7 +172,7 @@ class GTFS_Builder:
         )
 
         calendar = pd.read_csv(
-            f"{self.dir}/gtfs/calendar.txt",
+            f"{to_dir}/calendar.txt",
             dtype={
                 "service_id": int,
                 "monday": int,
@@ -227,40 +208,58 @@ class GTFS_Builder:
 
         return service_stops
 
-    def create_route_linestrings(self, df):
-        """
-        ### NOT FUNCTIONAL AS YET
-        Constructs linestring for each physical route, following stop sequence
-        """
+    # def assign_stop_sequence_to_reclaimed(self, reclaimed, timetable):
 
-        # convert to GeoDataFrame with geometry column for coordinates
-        gdf = gpd.GeoDataFrame(
-            df, geometry=gpd.points_from_xy(df["stop_lat"], df["stop_lon"])
-        )
+    #     assigned_df = pd.DataFrame(columns=list(reclaimed.columns))
 
-        # ensure only unique points in any route
-        routes = gdf.drop_duplicates(["route_id", "geometry"])
+    #     for trip in reclaimed["trip_id"].unique():
 
-        # filter rows attributed to routes with at least
-        # minimum number of unique points
-        route_counts = routes["route_id"].value_counts()
-        mask = routes["route_id"].isin(
-            route_counts[route_counts > self.route_stop_threshold].index
-        )
-        routes = routes[mask]
+    #         trip_route = timetable[timetable["trip_id"] == trip]
+    #         trip_route_gdf = gpd.GeoDataFrame(
+    #             trip_route.reset_index(drop=True),
+    #             geometry=gpd.points_from_xy(
+    #                 trip_route["stop_lat"], trip_route["stop_lon"]
+    #             ),
+    #             crs=4326,
+    #         )
+    #         trip_route_gdf.to_crs(27700)
 
-        routes = (
-            routes.groupby("route_id")
-            .apply(lambda x: LineString(x.geometry))
-            .reset_index()
-        )
+    #         if len(trip_route) > 0:
 
-        routes.columns = ["route_id", "geometry"]
+    #             trip_reclaim = reclaimed[reclaimed["trip_id"] == trip]
+    #             trip_reclaim_gdf = gpd.GeoDataFrame(
+    #                 trip_reclaim.reset_index(drop=True),
+    #                 geometry=gpd.points_from_xy(
+    #                     trip_reclaim["latitude"], trip_reclaim["longitude"]
+    #                 ),
+    #                 crs=4326,
+    #             )
+    #             trip_reclaim_gdf.to_crs(27700)
 
-        routes = gpd.GeoDataFrame(routes)
-        routes.to_file(f"{self.dir}/route_linestrings.geojson")
+    #             reclaim_aligned_gdf = nearest_neighbor(
+    #                 trip_reclaim_gdf, trip_route_gdf, return_dist=True
+    #             )
+    #             reclaim_nearest_gdf = reclaim_aligned_gdf.loc[
+    #                 reclaim_aligned_gdf.groupby(
+    #                     "current_stop"
+    #                 ).distance.idxmin()  # noqa: E501
+    #             ]
 
-        return routes
+    #             reclaim_nearest_gdf = (
+    #                 reclaim_nearest_gdf[
+    #                     reclaim_nearest_gdf["distance"]
+    #                     < self.nearest_threshold  # noqa: E501
+    #                 ]
+    #                 .sort_values("time_transpond")
+    #                 .reset_index(drop=True)
+    #             )
+
+    #             assigned_df = pd.concat([assigned_df, reclaim_nearest_gdf])
+
+    #         else:
+    #             pass
+
+    #     return assigned_df.reset_index(drop=True)
 
     def prepare_gtfs(self, labelled_real, timetable) -> pd.DataFrame:
         """
@@ -336,8 +335,12 @@ class GTFS_Builder:
         Args:
             gtfs_temp (pandas_df): exploded timetable data with realtime times
         """
-        if not os.path.exists(f"{self.dir}/realtime_gtfs"):
-            os.mkdir(f"{self.dir}/realtime_gtfs")
+
+        from_dir = f"{self.dir}/timetable"
+        to_dir = f"{self.dir}/realtime_gtfs"
+
+        if not os.path.exists(to_dir):
+            os.mkdir(to_dir)
 
         # reverse-engineered trips.txt
         gtfs_temp[
@@ -353,7 +356,7 @@ class GTFS_Builder:
                 "vehicle_journey_code",
             ]
         ].drop_duplicates().to_csv(
-            f"{self.dir}/realtime_gtfs/trips.txt", index=False
+            f"{to_dir}/trips.txt", index=False
         )  # noqa: E501
 
         # reverse-engineered stop_times.txt
@@ -371,7 +374,7 @@ class GTFS_Builder:
                 "timepoint",
                 "stop_direction_name",
             ]
-        ].to_csv(f"{self.dir}/realtime_gtfs/stop_times.txt", index=False)
+        ].to_csv(f"{to_dir}/stop_times.txt", index=False)
 
         # reverse-engineered stop_times.txt
         gtfs_temp[
@@ -383,15 +386,13 @@ class GTFS_Builder:
                 "route_type",
             ]
         ].drop_duplicates().to_csv(
-            f"{self.dir}/realtime_gtfs/routes.txt", index=False
+            f"{to_dir}/routes.txt", index=False
         )  # noqa: E501
 
         cal_dates = pd.DataFrame(
             columns=["service_id", "date", "exception_type"]
         )  # noqa: E501
-        cal_dates.to_csv(
-            f"{self.dir}/realtime_gtfs/calendar_dates.txt", index=False
-        )  # noqa: E501
+        cal_dates.to_csv(f"{to_dir}/calendar_dates.txt", index=False)  # noqa: E501
 
         # arbitrarily adding the first date we see
         #  - programmatic approach required for multiple days
@@ -415,50 +416,26 @@ class GTFS_Builder:
                 "end_date",
             ]
         ] = (0, 1, 0, 0, 0, 0, 0, date, date)
-        calendar.to_csv(f"{self.dir}/realtime_gtfs/calendar.txt", index=False)
+        calendar.to_csv(f"{to_dir}/calendar.txt", index=False)
 
         # copy other admin files across - no changes required
         shutil.copy(
-            f"{self.dir}/gtfs/agency.txt",
-            f"{self.dir}/realtime_gtfs/agency.txt",  # noqa: E501
+            f"{from_dir}/agency.txt",
+            f"{to_dir}/agency.txt",  # noqa: E501
         )
         shutil.copy(
-            f"{self.dir}/gtfs/feed_info.txt",
-            f"{self.dir}/realtime_gtfs/feed_info.txt",  # noqa: E501
+            f"{from_dir}/feed_info.txt",
+            f"{to_dir}/feed_info.txt",  # noqa: E501
         )
         shutil.copy(
-            f"{self.dir}/gtfs/shapes.txt",
-            f"{self.dir}/realtime_gtfs/shapes.txt",  # noqa: E501
+            f"{from_dir}/shapes.txt",
+            f"{to_dir}/shapes.txt",  # noqa: E501
         )
-        shutil.copy(
-            f"{self.dir}/gtfs/stops.txt", f"{self.dir}/realtime_gtfs/stops.txt"
-        )  # noqa: E501
+        shutil.copy(f"{from_dir}/stops.txt", f"{to_dir}/stops.txt")  # noqa: E501
 
-        # List of .txt files to add to the .zip file
-        txt_files = [
-            "agency.txt",
-            "calendar.txt",
-            "calendar_dates.txt",
-            "feed_info.txt",
-            "routes.txt",
-            "shapes.txt",
-            "stop_times.txt",
-            "stops.txt",
-            "trips.txt",
-        ]
-
-        # Zips file's name
-        zip_file = f'{self.dir.split("/")[-1]}_real_gtfs.zip'
-
-        # Create a new .zip file
-        with zipfile.ZipFile(
-            f"{self.dir}/{zip_file}", "w", zipfile.ZIP_DEFLATED
-        ) as archive:
-            for txt_file in txt_files:
-                # Add each .txt file to the zip
-                archive.write(
-                    f"{self.dir}/realtime_gtfs/{txt_file}", arcname=txt_file
-                )  # noqa: E501
+        if self.zip_gtfs:
+            zip_name = f"{self.region}_{self.today}_realtimegtfs.zip"
+            zip_files(to_dir, zip_name)
 
         return None
 
@@ -477,21 +454,33 @@ if __name__ == "__main__":
 
     # load toml config
     config = toml.load("config.toml")["data_ingest"]
-
     builder = GTFS_Builder(config)
-    logger.info(
-        "Loading all realtime data \
-                - separating labelled and unlabelled"
-    )
-    labelled_real, unlabelled_real = builder.load_raw_realtime_data()
-    # logger.info("Assigning trip_id & route_id by bus_id linkage")
-    # labelled_real, unlabelled_real = builder.reclaim_unlabelled_by_busid(labelled_real, unlabelled_real)    # noqa: E501
+
+    logger.info("Loading all realtime data")
+    real = builder.load_raw_realtime_data()
+
+    labelled_real, unlabelled_real = builder.split_realtime_data(real)
+    logger.info(f"Raw labelled realtime data: {len(labelled_real)} rows")
+    logger.info(f"Raw UNLABELLED realtime data: {len(unlabelled_real)} rows")
+
+    labelled_real = deduplicate(labelled_real)
+    unlabelled_real = deduplicate(unlabelled_real)
+    logger.info(f"Dedup labelled realtime data: {len(labelled_real)} rows")
+    logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
+
     logger.info("Loading all timetable data")
     timetable = builder.load_raw_timetable_data()
+
     logger.info(
         "Extract timetable data aligned to realtime activity \
             - inject real times"
     )
     gtfs = builder.prepare_gtfs(labelled_real, timetable)
+
     logger.info("Write updated GTFS files")
     builder.write_gtfs(gtfs)
+
+    if config["zip_gtfs"]:
+        logger.info("Zipping GTFS files")
+
+    logger.info("GTFS Builder complete....")
