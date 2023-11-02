@@ -61,6 +61,9 @@ class GTFS_Builder:
         unlabelled_real = unlabelled_real.drop_duplicates(
             subset=["bus_id", "time_transpond"], keep="first"
         )
+        labelled_real.to_csv(
+            f"{self.dir}/realtime/{self.region}_{self.today}_labelled.csv"
+        )
 
         return labelled_real, unlabelled_real
 
