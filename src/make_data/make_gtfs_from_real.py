@@ -7,7 +7,7 @@ import pandas as pd
 import shutil
 
 # from src.utils.stop_sequence import nearest_neighbor
-from src.utils.preprocessing import deduplicate, zip_files
+from src.utils.preprocessing import deduplicate, zip_files, unzip_GTFS
 
 
 class GTFS_Builder:
@@ -23,12 +23,15 @@ class GTFS_Builder:
 
     def __init__(self, config):
         self.today = config["today"]
-        self.weekday = config["weekday"]
+        self.weekday = (
+            datetime.strptime(config["today"], "%Y%m%d").strftime("%A").lower()
+        )
         self.region = config["region"]
         self.dir = f"{config['dir']}/{self.region}/{self.today}"
         self.output = config["output"]
         self.timetable_exceptions = config["timetable_exceptions"]
         self.zip_gtfs = config["zip_gtfs"]
+        self.unzip_timetable = config["unzip_timetable"]
 
     def load_raw_realtime_data(self) -> pd.DataFrame:
         """
@@ -72,7 +75,7 @@ class GTFS_Builder:
 
         return labelled_real, unlabelled_real
 
-    def load_raw_timetable_data(self) -> pd.DataFrame:
+    def load_raw_timetable_data(self, logger=None) -> pd.DataFrame:
         """
         Collects and concatenates all timetable data for specified
         day, returning all individual service stops (every 'bus
@@ -83,6 +86,15 @@ class GTFS_Builder:
         """
 
         to_dir = f"{self.dir}/timetable"
+
+        if self.unzip_timetable:
+            # Unzip timetable.zip
+            unzip_GTFS(
+                txt_path=to_dir,
+                zip_path=to_dir,
+                file_name_pattern="timetable.zip",
+                logger=logger,
+            )
 
         # id services affected by exceptions today only
         calendar_dates = pd.read_csv(
@@ -352,7 +364,7 @@ class GTFS_Builder:
                 "block_id",
                 "shape_id",
                 "wheelchair_accessible",
-                "trip_direction_name",
+                # "trip_direction_name",
                 "vehicle_journey_code",
             ]
         ].drop_duplicates().to_csv(
@@ -372,7 +384,7 @@ class GTFS_Builder:
                 "drop_off_type",
                 "shape_dist_traveled",
                 "timepoint",
-                "stop_direction_name",
+                # "stop_direction_name",
             ]
         ].to_csv(f"{to_dir}/stop_times.txt", index=False)
 
@@ -401,8 +413,7 @@ class GTFS_Builder:
             gtfs_temp["service_id"].unique(), columns=["service_id"]
         )
 
-        # n.b. hardcoded to tuesday
-        # todo - infer active weekdays
+        # set calendar columns up
         calendar[
             [
                 "monday",
@@ -415,7 +426,11 @@ class GTFS_Builder:
                 "start_date",
                 "end_date",
             ]
-        ] = (0, 1, 0, 0, 0, 0, 0, date, date)
+        ] = (0, 0, 0, 0, 0, 0, 0, date, date)
+
+        # Set 1 to weekayday column
+        calendar[self.weekday] = 1
+
         calendar.to_csv(f"{to_dir}/calendar.txt", index=False)
 
         # copy other admin files across - no changes required
@@ -469,7 +484,7 @@ if __name__ == "__main__":
     logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
     logger.info("Loading all timetable data")
-    timetable = builder.load_raw_timetable_data()
+    timetable = builder.load_raw_timetable_data(logger=logger)
 
     logger.info(
         "Extract timetable data aligned to realtime activity \
