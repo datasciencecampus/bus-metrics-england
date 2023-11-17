@@ -67,8 +67,7 @@ class GTFS_Builder:
             "bearing": float,
             "journey_date": int,
         }
-        # df = pd.concat(map(pd.read_csv(dtype=dtypes_dict),
-        # tables), ignore_index=True)
+        # df = pd.concat(map(pd.read_csv(tables), ignore_index=True)
         # alternative reqd to pass args to pd.read_csv
         df_list = (pd.read_csv(table, dtype=dtypes_dict) for table in tables)
         df = pd.concat(df_list, ignore_index=True)
@@ -137,6 +136,7 @@ class GTFS_Builder:
 
         trips = pd.read_csv(
             f"{to_dir}/trips.txt",
+            engine="python",
             dtype={
                 "route_id": str,
                 "service_id": int,
