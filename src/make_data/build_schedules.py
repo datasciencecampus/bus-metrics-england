@@ -114,7 +114,7 @@ class Schedule_Builder:
             0,
         )
         df = (
-            df.groupby("LSOA21NM")["punctual"]
+            df.groupby("LSOA21CD")["punctual"]
             .agg(["count", "mean"])
             .reset_index()  # noqa: E501
         )  # noqa: E501
@@ -123,7 +123,7 @@ class Schedule_Builder:
             [
                 df,
                 pd.DataFrame(
-                    geog_no_stops_vals, columns=["LSOA21NM", "count", "mean"]
+                    geog_no_stops_vals, columns=["LSOA21CD", "count", "mean"]
                 ),  # noqa: E501
             ]
         )
@@ -154,7 +154,11 @@ if __name__ == "__main__":
     date = config["data_ingest"]["today"]
 
     logger.info("Preparing geography labels")
+    # stops = pd.read_csv("data/daily/gb_stops.csv")     # NAPTAN data
+    # stops = stops[["ATCOCode", "Latitude", "Longitude"]]
+    # stops.columns = ["stop_id", "stop_lat", "stop_lon"]
     stops = build_daily_stops_file(date)
+    stops.to_csv(f"data/daily/stops_{date}.txt")
     logger.info(
         f"PRE-LABEL.... Stop rows: {len(stops)}..... Unique stop ids: {stops['stop_id'].nunique()}"  # noqa: E501
     )
@@ -164,10 +168,10 @@ if __name__ == "__main__":
     logger.info(
         f"POST-LABEL.... Stop rows: {len(stops_lab)}..... Unique stop ids: {stops_lab['stop_id'].nunique()}"  # noqa: E501
     )
-    logger.info(f"LSOAs captured: {stops_lab['LSOA21NM'].nunique()}")
+    logger.info(f"LSOAs captured: {stops_lab['LSOA21CD'].nunique()}")
 
     # LSOAs containing no physical bus stops
-    lsoas_no_stops = list(set(bounds["LSOA21NM"]) - set(stops_lab["LSOA21NM"]))
+    lsoas_no_stops = list(set(bounds["LSOA21CD"]) - set(stops_lab["LSOA21CD"]))
     lsoas_no_stops = [x for x in lsoas_no_stops if x[0] == "E"]
 
     logger.info("Loading and building from raw timetable data")
@@ -213,6 +217,10 @@ if __name__ == "__main__":
     # only service stops common in RT and TT
     schedule = pd.merge(rt, tt, on="UID", how="inner")
     schedule.to_csv(f"data/daily/schedules/schedule_england_{date}.csv")
+
+    lost_ids = list(set(schedule["stop_id"]) - set(stops_lab["stop_id"]))
+    logger.info(f"Stop ids in the schedule, not in stops.txt: {len(lost_ids)}")
+    logger.info(lost_ids[:10])
 
     logger.info("Writing punctuality to file")
     punc = schedule_build.punctuality_by_lsoa(schedule, lsoas_no_stops)

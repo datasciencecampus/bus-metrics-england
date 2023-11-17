@@ -1,9 +1,15 @@
 import zipfile
 import os
 import glob
+import pandas as pd
+import geopandas as gpd
 
 
 def deduplicate(df):
+    """Deduplicates realtime BODS data in respect of
+    available variables to leave only unique pings
+    in respect of specified variables at their latest
+    transmission time"""
     df = df.drop_duplicates(
         [
             "bus_id",
@@ -19,6 +25,8 @@ def deduplicate(df):
 
 
 def zip_files(to_dir, zip_name):
+    """Zips required GTFS constituent files into folder"""
+
     # List of .txt files to add to the .zip file
     txt_files = [
         "agency.txt",
@@ -112,3 +120,51 @@ def unzip_GTFS(
         with zipfile.ZipFile(zip_full_path, "r") as zip_ref:
             # Extract to path
             zip_ref.extractall(txt_path)
+
+
+def convert_string_time_to_unix(date, df, string_column):
+    """Add additional column: UNIX representation of timetable time formats"""
+    df["unix_arrival_time"] = pd.to_datetime(
+        str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
+    )
+    df["unix_arrival_time"] = (
+        (df["unix_arrival_time"] - pd.Timestamp("1970-01-01"))
+        // pd.Timedelta("1s")  # noqa: E501
+    ) - 3600
+    return df
+
+
+def build_daily_stops_file(date):
+    dir = "data/daily/timetable"
+    regions = [
+        "EastAnglia",
+        "EastMidlands",
+        "NorthEast",
+        "NorthWest",
+        "SouthEast",
+        "SouthWest",
+        "WestMidlands",
+        "Yorkshire",
+    ]
+
+    df = pd.DataFrame()
+
+    for region in regions:
+        reg_stops = pd.read_csv(f"{dir}/{region}/{date}/stops.txt")
+        df = pd.concat([df, reg_stops])
+
+    df = df.drop_duplicates(subset="stop_id")
+    return df
+
+
+def apply_geography_label_to_stops(stops, bounds, geography="LSOA"):
+    if geography == "LSOA":
+        stops["geometry"] = gpd.points_from_xy(
+            stops["stop_lon"], stops["stop_lat"]
+        )  # noqa: E501
+        stops = gpd.GeoDataFrame(stops)
+        stops = stops.set_crs("4326").to_crs("27700")
+
+        stops_labelled = stops.sjoin(bounds, how="left", predicate="within")
+
+        return stops_labelled
