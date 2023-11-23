@@ -3,6 +3,7 @@ import os
 import glob
 import pandas as pd
 import geopandas as gpd
+from convertbng.util import convert_lonlat
 
 
 def deduplicate(df):
@@ -157,14 +158,41 @@ def build_daily_stops_file(date):
     return df
 
 
-def apply_geography_label_to_stops(stops, bounds, geography="LSOA"):
+def build_stops(logger=None) -> pd.DataFrame:
+    # import NapTAN data
+    stops = pd.read_csv("data/daily/gb_stops.csv")
+    stops_no_latlon = stops.loc[
+        (stops["Latitude"].isnull()) | (stops["Longitude"].isnull())
+    ]
+
+    eastings = stops_no_latlon["Easting"].to_list()
+    northings = stops_no_latlon["Northing"].to_list()
+    lon, lat = convert_lonlat(eastings, northings)
+
+    stops_no_latlon["Longitude"] = lon
+    stops_no_latlon["Latitude"] = lat
+
+    stops[["Longitude", "Latitude"]] = stops[["Longitude", "Latitude"]].fillna(
+        stops_no_latlon
+    )
+    stops = stops[["ATCOCode", "Latitude", "Longitude"]]
+    stops.columns = ["stop_id", "stop_lat", "stop_lon"]
+    return stops
+
+
+def apply_geography_label(df, bounds, geography="LSOA", type="timetable"):
+    if type == "timetable":
+        lat = "stop_lat"
+        lon = "stop_lon"
+    else:
+        lat = "latitude"
+        lon = "longitude"
+
     if geography == "LSOA":
-        stops["geometry"] = gpd.points_from_xy(
-            stops["stop_lon"], stops["stop_lat"]
-        )  # noqa: E501
-        stops = gpd.GeoDataFrame(stops)
-        stops = stops.set_crs("4326").to_crs("27700")
+        df["geometry"] = gpd.points_from_xy(df[lon], df[lat])  # noqa: E501
+        df = gpd.GeoDataFrame(df)
+        df = df.set_crs("4326").to_crs("27700")
 
-        stops_labelled = stops.sjoin(bounds, how="left", predicate="within")
+        df_labelled = df.sjoin(bounds, how="left", predicate="within")
 
-        return stops_labelled
+        return df_labelled
