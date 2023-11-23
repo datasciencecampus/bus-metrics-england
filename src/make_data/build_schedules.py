@@ -2,10 +2,7 @@ from datetime import datetime
 import logging
 import toml
 from src.make_data.make_gtfs_from_real import GTFS_Builder
-from src.utils.preprocessing import (
-    build_daily_stops_file,
-    apply_geography_label_to_stops,
-)
+from src.utils.preprocessing import apply_geography_label
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -42,6 +39,10 @@ class Schedule_Builder:
         time_to: str = "10:00:00",
         partial_timetable: bool = False,
     ) -> pd.DataFrame:
+        """Processes timetable for given region and day, slicing to
+        specified time frame and applying unique identifier to
+        each service stop"""
+
         df = self.gtfs.load_raw_timetable_data(region=region, date=date)
         # read as string but reformat float-like values to integer-like values
         df["route_id"] = df["route_id"].astype(str)
@@ -74,13 +75,15 @@ class Schedule_Builder:
         return df
 
     def build_realtime(self, region: str, date: int) -> pd.DataFrame:
+        """Processes realtime for given region and day.
+        Applies unique identifier to each service stop"""
         df = self.gtfs.load_raw_realtime_data(region=region, date=date)
         # # read as string but reformat float-like values
         # to integer-like values
         # df["route_id"] = df["route_id"].astype(str)
         # df["route_id"] = df["route_id"].replace(".0", "")
 
-        df, _ = self.gtfs.split_realtime_data(df)
+        df, unlabelled = self.gtfs.split_realtime_data(df)
         df = df.sort_values(
             ["trip_id", "current_stop", "time_transpond", "time_ingest"]
         )
@@ -96,11 +99,11 @@ class Schedule_Builder:
         )
         df = df.drop_duplicates(["UID"])
 
-        return df
+        return df, unlabelled
 
-    def punctuality_by_lsoa(
-        self, df: pd.DataFrame, geog_no_stops: list
-    ) -> pd.DataFrame:
+    def punctuality_by_lsoa(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Applies punctuality and punctuality flag to
+        RT/TT combined schedule"""
         df["unix_arrival_time"] = (
             df["unix_arrival_time"] + 3600
         )  # dealing with GMT date
@@ -118,15 +121,7 @@ class Schedule_Builder:
             .agg(["count", "mean"])
             .reset_index()  # noqa: E501
         )  # noqa: E501
-        geog_no_stops_vals = [[x, 0, np.nan] for x in geog_no_stops]
-        df = pd.concat(
-            [
-                df,
-                pd.DataFrame(
-                    geog_no_stops_vals, columns=["LSOA21CD", "count", "mean"]
-                ),  # noqa: E501
-            ]
-        )
+
         return df
 
 
@@ -153,27 +148,6 @@ if __name__ == "__main__":
     rt_regions = config["schedules"]["rt_regions"]
     date = config["data_ingest"]["today"]
 
-    logger.info("Preparing geography labels")
-    # stops = pd.read_csv("data/daily/gb_stops.csv")     # NAPTAN data
-    # stops = stops[["ATCOCode", "Latitude", "Longitude"]]
-    # stops.columns = ["stop_id", "stop_lat", "stop_lon"]
-    stops = build_daily_stops_file(date)
-    stops.to_csv(f"data/daily/stops_{date}.txt")
-    logger.info(
-        f"PRE-LABEL.... Stop rows: {len(stops)}..... Unique stop ids: {stops['stop_id'].nunique()}"  # noqa: E501
-    )
-    bounds = gpd.read_file("data/LSOA_2021_boundaries.geojson")
-    stops_lab = apply_geography_label_to_stops(stops, bounds)
-    stops_lab = stops_lab.reset_index(drop=True)
-    logger.info(
-        f"POST-LABEL.... Stop rows: {len(stops_lab)}..... Unique stop ids: {stops_lab['stop_id'].nunique()}"  # noqa: E501
-    )
-    logger.info(f"LSOAs captured: {stops_lab['LSOA21CD'].nunique()}")
-
-    # LSOAs containing no physical bus stops
-    lsoas_no_stops = list(set(bounds["LSOA21CD"]) - set(stops_lab["LSOA21CD"]))
-    lsoas_no_stops = [x for x in lsoas_no_stops if x[0] == "E"]
-
     logger.info("Loading and building from raw timetable data")
     tt = pd.DataFrame()
     for region in tt_regions:
@@ -189,7 +163,12 @@ if __name__ == "__main__":
         tt = pd.concat([tt, tti])
 
     logger.info("Merging in geography labels to timetable")
-    tt = pd.merge(tt, stops_lab, how="left", on="stop_id")
+    bounds = gpd.read_file("data/LSOA_2021_boundaries.geojson")
+    # England LSOAs only
+    bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
+    tt = apply_geography_label(tt, bounds)
+    tt = tt.reset_index(drop=True)
+
     tt = tt[
         [
             "UID",
@@ -202,28 +181,78 @@ if __name__ == "__main__":
             "stop_id",
             "LSOA21CD",
             "LSOA21NM",
+            "stop_lat",
+            "stop_lon",
         ]
     ]
 
+    logger.info("Diagnostics: timetable coverage by LSOA")
+    # illustrative output of timetabled service stops by LSOA
+    tt_lsoa_coverage = pd.DataFrame(
+        tt["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    tt_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        tt_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
+    )
+    tt_lsoa_coverage.to_csv(f"data/daily/metrics/tt_lsoa_coverage_{date}.csv")
+
     logger.info("Loading and building from raw realtime data")
     rt = pd.DataFrame()
+    rt_u = pd.DataFrame()
     for region in rt_regions:
         logger.info(f"Processing realtime: {region}: {date}")
-        rti = schedule_build.build_realtime(region=region, date=date)
-        rti = rti[["UID", "time_transpond", "bus_id"]]
+        rti, rti_u = schedule_build.build_realtime(region=region, date=date)
+        rti = rti[["UID", "time_transpond", "bus_id", "latitude", "longitude"]]
         rt = pd.concat([rt, rti])
+        rt_u = pd.concat([rt_u, rti_u])
+
+    logger.info("Diagnostics: realtime coverage by LSOA")
+    rt = apply_geography_label(rt, bounds, type="realtime")
+    rt = rt.reset_index(drop=True)
+
+    # illustrative output of realtime service stops by LSOA
+    rt_lsoa_coverage = pd.DataFrame(
+        rt["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    rt_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        rt_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
+    )
+    rt_lsoa_coverage.to_csv(f"data/daily/metrics/rt_lsoa_coverage_{date}.csv")
+
+    logger.info("Diagnostics: UNLABELLED realtime coverage by LSOA")
+
+    # illustrative output of unlabelled RT rows by LSOA
+    rt_u = apply_geography_label(rt_u, bounds, type="realtime")
+    rt_u = rt_u.reset_index(drop=True)
+    rt_u_lsoa_coverage = pd.DataFrame(
+        rt_u["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    rt_u_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        rt_u_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
+    )
+    rt_u_lsoa_coverage.to_csv(
+        f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
+    )  # noqa: E501
 
     logger.info("Writing schedule to file")
     # only service stops common in RT and TT
-    schedule = pd.merge(rt, tt, on="UID", how="inner")
+    schedule = pd.merge(
+        rt[["UID", "time_transpond", "bus_id"]], tt, on="UID", how="inner"
+    )
+    schedule = schedule.drop_duplicates()  # TODO: check if req'd
     schedule.to_csv(f"data/daily/schedules/schedule_england_{date}.csv")
 
-    lost_ids = list(set(schedule["stop_id"]) - set(stops_lab["stop_id"]))
-    logger.info(f"Stop ids in the schedule, not in stops.txt: {len(lost_ids)}")
-    logger.info(lost_ids[:10])
-
     logger.info("Writing punctuality to file")
-    punc = schedule_build.punctuality_by_lsoa(schedule, lsoas_no_stops)
+    punc = schedule_build.punctuality_by_lsoa(schedule)
     punc.to_csv(f"data/daily/schedules/punctuality_by_lsoa_england_{date}.csv")
 
     logger.info("\n")
