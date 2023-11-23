@@ -12,6 +12,7 @@ from src.utils.preprocessing import (
     convert_string_time_to_unix,
     build_stops,
 )  # noqa: E501
+from src.utils.resourcing import import_file_from_naptan
 
 
 class GTFS_Builder:
@@ -436,6 +437,10 @@ if __name__ == "__main__":
     # load toml config
     config = toml.load("config.toml")["data_ingest"]
     builder = GTFS_Builder(config)
+
+    if not os.path.exists("data/daily/gb_stops.csv"):
+        logger.info("Importing stops from NaPTAN site")
+        import_file_from_naptan()
 
     logger.info("Loading all realtime data")
     real = builder.load_raw_realtime_data()
