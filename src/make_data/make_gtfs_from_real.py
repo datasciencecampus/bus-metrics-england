@@ -5,13 +5,12 @@ import os
 import glob
 import pandas as pd
 import shutil
-
-# from src.utils.stop_sequence import nearest_neighbor
 from src.utils.preprocessing import (
     deduplicate,
     zip_files,
     unzip_GTFS,
     convert_string_time_to_unix,
+    build_stops,
 )  # noqa: E501
 
 
@@ -67,8 +66,7 @@ class GTFS_Builder:
             "bearing": float,
             "journey_date": int,
         }
-        # df = pd.concat(map(pd.read_csv(tables), ignore_index=True)
-        # alternative reqd to pass args to pd.read_csv
+
         df_list = (pd.read_csv(table, dtype=dtypes_dict) for table in tables)
         df = pd.concat(df_list, ignore_index=True)
 
@@ -148,20 +146,7 @@ class GTFS_Builder:
                 "vehicle_journey_code": str,
             },
         )
-        stops = pd.read_csv(
-            f"{to_dir}/stops.txt",
-            dtype={
-                "stop_id": str,
-                "stop_code": str,
-                "stop_name": str,
-                "stop_lat": float,
-                "stop_lon": float,
-                "wheelchair_boarding": int,
-                "location_type": float,
-                "parent_station": str,
-                "platform_code": str,
-            },
-        )
+
         stop_times = pd.read_csv(
             f"{to_dir}/stop_times.txt",
             dtype={
@@ -192,6 +177,8 @@ class GTFS_Builder:
 
         # filter only bus type (not coach, ferry, metro)
         routes = routes[routes["route_type"].isin(self.route_types)]
+
+        stops = build_stops()
 
         service_stops = pd.merge(
             pd.merge(
@@ -462,8 +449,13 @@ if __name__ == "__main__":
     logger.info(f"Dedup labelled realtime data: {len(labelled_real)} rows")
     logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
+    logger.info("Building stops data from NaPTAN")
+    stops = build_stops(logger=logger)
+
     logger.info("Loading all timetable data")
-    timetable = builder.load_raw_timetable_data(logger=logger)
+    timetable = builder.load_raw_timetable_data(
+        stops_data=stops, logger=logger
+    )  # noqa: E501
 
     logger.info(
         "Extract timetable data aligned to realtime activity \
