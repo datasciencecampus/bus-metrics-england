@@ -123,16 +123,31 @@ def unzip_GTFS(
             zip_ref.extractall(txt_path)
 
 
-def convert_string_time_to_unix(date, df, string_column):
+def convert_string_time_to_unix(
+    date, df=None, string_column=None, convert_type="single"
+):
     """Add additional column: UNIX representation of timetable time formats"""
-    df["unix_arrival_time"] = pd.to_datetime(
-        str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
-    )
-    df["unix_arrival_time"] = (
-        (df["unix_arrival_time"] - pd.Timestamp("1970-01-01"))
-        // pd.Timedelta("1s")  # noqa: E501
-    ) - 3600
-    return df
+
+    if convert_type == "single":
+        timestamp = pd.to_datetime(
+            str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+        )
+        timestamp = (timestamp - pd.Timestamp("1970-01-01")) // pd.Timedelta(
+            "1s"
+        )  # noqa: E501
+
+        return timestamp
+
+    elif convert_type == "column":
+        df["unix_arrival_time"] = pd.to_datetime(
+            str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
+        )
+        df["unix_arrival_time"] = (
+            df["unix_arrival_time"] - pd.Timestamp("1970-01-01")
+        ) // pd.Timedelta(
+            "1s"
+        )  # noqa: E501
+        return df
 
 
 def build_daily_stops_file(date):

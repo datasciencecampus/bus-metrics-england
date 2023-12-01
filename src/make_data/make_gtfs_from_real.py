@@ -31,6 +31,7 @@ class GTFS_Builder:
         self,
         tt_region: str = "Yorkshire",
         rt_region: str = "YorkshireandTheHumber",
+        region: str = "YorkshireandTheHumber",
         date: str = "20231103",
         dir: str = "data/daily",
         output: str = "data/output",
@@ -39,9 +40,11 @@ class GTFS_Builder:
         unzip_timetable: bool = False,
         route_stop_threshold: int = 5,
         route_types: list = [3],
+        logger=None,
     ):
         self.tt_region = tt_region
         self.rt_region = rt_region
+        self.region = region
         self.date = date
         self.dir = dir
         self.output = output
@@ -59,7 +62,7 @@ class GTFS_Builder:
         else:
             self.logger = logger
 
-    def load_raw_realtime_data(self) -> pd.DataFrame:
+    def load_raw_realtime_data(self, region=None) -> pd.DataFrame:
         """
         Collects all realtime data for individual day
 
@@ -67,7 +70,10 @@ class GTFS_Builder:
             df (pandas df): unprocessed realtime data
         """
 
-        dir = f"data/daily/realtime/{self.rt_region}/{self.date}/"
+        if region is None:
+            region = self.rt_region
+
+        dir = f"data/daily/realtime/{region}/{self.date}/"
         # collate all realtime ingests to single dataframe
         tables = os.path.join(dir, "*.csv")  # noqa: E501
         tables = glob.glob(tables)
@@ -109,7 +115,7 @@ class GTFS_Builder:
 
         return labelled_real, unlabelled_real
 
-    def load_raw_timetable_data(self) -> pd.DataFrame:
+    def load_raw_timetable_data(self, region=None) -> pd.DataFrame:
         """
         Collects and concatenates all timetable data for specified
         day, returning all individual service stops (every 'bus
@@ -119,7 +125,10 @@ class GTFS_Builder:
             service_stops (pandas_df): all service stops
         """
 
-        from_dir = f"{self.dir}/timetable/{self.tt_region}/{self.date}"
+        if region is None:
+            region = self.tt_region
+
+        from_dir = f"{self.dir}/timetable/{region}/{self.date}"
 
         if self.unzip_timetable:
             # Unzip timetable.zip
@@ -249,7 +258,7 @@ class GTFS_Builder:
         ]
 
         service_stops = convert_string_time_to_unix(
-            self.date, service_stops, "arrival_time"
+            self.date, service_stops, "arrival_time", convert_type="column"
         )  # noqa: E501
 
         return service_stops
@@ -443,7 +452,7 @@ if __name__ == "__main__":
 
     # load toml config
     config = toml.load("config.toml")
-    builder = GTFS_Builder(**config["data_ingest"])
+    builder = GTFS_Builder(**config["generic"], **config["data_ingest"])
 
     if not os.path.exists("data/daily/gb_stops.csv"):
         logger.info("Importing stops from NaPTAN site")

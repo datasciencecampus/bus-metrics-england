@@ -2,7 +2,10 @@ from datetime import datetime
 import logging
 import toml
 from src.make_data.make_gtfs_from_real import GTFS_Builder
-from src.utils.preprocessing import apply_geography_label
+from src.utils.preprocessing import (
+    apply_geography_label,
+    convert_string_time_to_unix,
+)  # noqa: E501
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -13,14 +16,45 @@ class Schedule_Builder:
     for all England on one single day. N.B. only service stops that
     are common in both timetable and realtime AND labelled correctly"""
 
-    def __init__(self, config):
-        self.tt_regions = config["schedules"]["tt_regions"]
-        self.date = config["data_ingest"]["today"]
-        self.start = config["schedules"]["partial_start"]
-        self.end = config["schedules"]["partial_end"]
-        logger: logging.Logger = (None,)
-
-        self.gtfs = GTFS_Builder(config)
+    def __init__(
+        self,
+        tt_regions: list = [
+            "EastAnglia",
+            "EastMidlands",
+            "NorthEast",
+            "NorthWest",
+            "SouthEast",
+            "SouthWest",
+            "WestMidlands",
+            "Yorkshire",
+        ],
+        rt_regions: list = [
+            "EastMidlands",
+            "EastofEngland",
+            "NorthEast",
+            "NorthWest",
+            "SouthEast",
+            "SouthWest",
+            "WestMidlands",
+            "YorkshireandTheHumber",
+        ],
+        region: str = "YorkshireandTheHumber",
+        date: str = "20231103",
+        time_from: float = 7.0,
+        time_to: float = 10.0,
+        partial_timetable: bool = True,
+        output_unlabelled_bulk: bool = False,
+        logger: logging.Logger = (None,),
+    ):
+        self.tt_regions = tt_regions
+        self.rt_regions = rt_regions
+        self.region = region
+        self.date = date
+        self.time_from = time_from
+        self.time_to = time_to
+        self.partial_timetable = partial_timetable
+        self.output_unlabelled_bulk = output_unlabelled_bulk
+        self.gtfs = GTFS_Builder(**config["generic"], **config["data_ingest"])
 
         # Initialise logger
         if logger is None:
@@ -29,37 +63,28 @@ class Schedule_Builder:
         else:
             self.logger = logger
 
-        return None
-
-    def build_timetable(
-        self,
-        region: str,
-        date: int,
-        time_from: str = "07:00:00",
-        time_to: str = "10:00:00",
-        partial_timetable: bool = False,
-    ) -> pd.DataFrame:
+    def build_timetable(self, region: str) -> pd.DataFrame:
         """Processes timetable for given region and day, slicing to
         specified time frame and applying unique identifier to
         each service stop"""
 
-        df = self.gtfs.load_raw_timetable_data(region=region, date=date)
+        df = self.gtfs.load_raw_timetable_data(region)
         # read as string but reformat float-like values to integer-like values
         df["route_id"] = df["route_id"].astype(str)
         df["route_id"] = df["route_id"].replace(".0", "")
 
-        if partial_timetable:
-            start = datetime.strptime(
-                str(date) + " " + str(time_from), "%Y%m%d %H:%M:%S"
-            )
-            start = datetime.timestamp(start)
-            finish = datetime.strptime(
-                str(date) + " " + str(time_to), "%Y%m%d %H:%M:%S"
-            )
-            finish = datetime.timestamp(finish)
+        # slicing timetable with 30 minute buffers either side of
+        # realtime window
+        datestamp = convert_string_time_to_unix(
+            date=self.date, convert_type="single"
+        )  # noqa: E501
+        tt_time_from = int(datestamp + (self.time_from * 60 * 60) - 1800)
+        tt_time_to = int(datestamp + (self.time_to * 60 * 60) + 1800)
+
+        if self.partial_timetable:
             df = df[
-                (df["unix_arrival_time"] >= start)
-                & (df["unix_arrival_time"] < finish)  # noqa: E501
+                (df["unix_arrival_time"] >= tt_time_from)
+                & (df["unix_arrival_time"] < tt_time_to)
             ]  # noqa: E501
 
         df["UID"] = (
@@ -74,14 +99,14 @@ class Schedule_Builder:
 
         return df
 
-    def build_realtime(self, region: str, date: int) -> pd.DataFrame:
+    def build_realtime(self, region: str) -> pd.DataFrame:
         """Processes realtime for given region and day.
         Applies unique identifier to each service stop"""
-        df = self.gtfs.load_raw_realtime_data(region=region, date=date)
-        # # read as string but reformat float-like values
-        # to integer-like values
-        # df["route_id"] = df["route_id"].astype(str)
-        # df["route_id"] = df["route_id"].replace(".0", "")
+
+        if region is None:
+            region = self.rt_region
+
+        df = self.gtfs.load_raw_realtime_data(region)
 
         df, unlabelled = self.gtfs.split_realtime_data(df)
         df = df.sort_values(
@@ -104,9 +129,6 @@ class Schedule_Builder:
     def punctuality_by_lsoa(self, df: pd.DataFrame) -> pd.DataFrame:
         """Applies punctuality and punctuality flag to
         RT/TT combined schedule"""
-        df["unix_arrival_time"] = (
-            df["unix_arrival_time"] + 3600
-        )  # dealing with GMT date
         df["relative_punctuality"] = (
             df["unix_arrival_time"] - df["time_transpond"]
         )  # noqa: E501
@@ -141,25 +163,17 @@ if __name__ == "__main__":
 
     # load toml config
     config = toml.load("config.toml")
-    gtfs_build = GTFS_Builder(toml.load("config.toml"))
-    schedule_build = Schedule_Builder(toml.load("config.toml"))
-
-    tt_regions = config["schedules"]["tt_regions"]
-    rt_regions = config["schedules"]["rt_regions"]
-    date = config["data_ingest"]["today"]
+    gtfs_build = GTFS_Builder(**config["generic"], **config["data_ingest"])
+    schedule_build = Schedule_Builder(
+        **config["generic"], **config["schedules"]
+    )  # noqa: E501
+    date = config["generic"]["date"]
 
     logger.info("Loading and building from raw timetable data")
     tt = pd.DataFrame()
-    for region in tt_regions:
+    for region in config["schedules"]["tt_regions"]:
         logger.info(f"Processing timetable: {region}: {date}")
-        tti = schedule_build.build_timetable(
-            region=region,
-            date=date,
-            time_from="06:30:00",
-            time_to="10:30:00",
-            partial_timetable=True,
-        )
-
+        tti = schedule_build.build_timetable(region)
         tt = pd.concat([tt, tti])
 
     logger.info("Merging in geography labels to timetable")
@@ -202,9 +216,9 @@ if __name__ == "__main__":
     logger.info("Loading and building from raw realtime data")
     rt = pd.DataFrame()
     rt_u = pd.DataFrame()
-    for region in rt_regions:
+    for region in config["schedules"]["rt_regions"]:
         logger.info(f"Processing realtime: {region}: {date}")
-        rti, rti_u = schedule_build.build_realtime(region=region, date=date)
+        rti, rti_u = schedule_build.build_realtime(region=region)
         rti = rti[["UID", "time_transpond", "bus_id", "latitude", "longitude"]]
         rt = pd.concat([rt, rti])
         rt_u = pd.concat([rt_u, rti_u])
@@ -217,6 +231,7 @@ if __name__ == "__main__":
     rt_lsoa_coverage = pd.DataFrame(
         rt["LSOA21CD"].value_counts()
     ).reset_index()  # noqa: E501
+
     rt_lsoa_coverage = pd.merge(
         bounds[["LSOA21CD", "LSOA21NM"]],
         rt_lsoa_coverage,
@@ -230,6 +245,13 @@ if __name__ == "__main__":
     # illustrative output of unlabelled RT rows by LSOA
     rt_u = apply_geography_label(rt_u, bounds, type="realtime")
     rt_u = rt_u.reset_index(drop=True)
+
+    if config["schedules"]["output_unlabelled_bulk"]:
+        logger.info("Exporting unlabelled RT data to file")
+        rt_u.to_csv("data/daily/unlabelled_rt.csv")
+    else:
+        logger.info("Unlabelled data export bypassed by user")
+
     rt_u_lsoa_coverage = pd.DataFrame(
         rt_u["LSOA21CD"].value_counts()
     ).reset_index()  # noqa: E501
@@ -239,6 +261,7 @@ if __name__ == "__main__":
         on="LSOA21CD",
         how="left",  # noqa: E501
     )
+
     rt_u_lsoa_coverage.to_csv(
         f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
     )  # noqa: E501
@@ -253,7 +276,7 @@ if __name__ == "__main__":
 
     logger.info("Writing punctuality to file")
     punc = schedule_build.punctuality_by_lsoa(schedule)
-    punc.to_csv(f"data/daily/schedules/punctuality_by_lsoa_england_{date}.csv")
+    punc.to_csv(f"data/daily/metrics/punctuality_by_lsoa_england_{date}.csv")
 
     logger.info("\n")
     logger.info("-------------------------------")
