@@ -2,12 +2,18 @@ import logging
 from datetime import datetime
 import toml
 import os
+from os import listdir
 import glob
 import pandas as pd
 import shutil
-
-# from src.utils.stop_sequence import nearest_neighbor
-from src.utils.preprocessing import deduplicate, zip_files, unzip_GTFS
+from src.utils.preprocessing import (
+    deduplicate,
+    zip_files,
+    unzip_GTFS,
+    convert_string_time_to_unix,
+    build_stops,
+)  # noqa: E501
+from src.utils.resourcing import import_file_from_naptan
 
 
 class GTFS_Builder:
@@ -21,19 +27,42 @@ class GTFS_Builder:
         config (dict): data_ingest content of config file.
     """
 
-    def __init__(self, config):
-        self.today = config["today"]
-        self.weekday = (
-            datetime.strptime(config["today"], "%Y%m%d").strftime("%A").lower()
-        )
-        self.region = config["region"]
-        self.dir = f"{config['dir']}/{self.region}/{self.today}"
-        self.output = config["output"]
-        self.timetable_exceptions = config["timetable_exceptions"]
-        self.zip_gtfs = config["zip_gtfs"]
-        self.unzip_timetable = config["unzip_timetable"]
+    def __init__(
+        self,
+        tt_region: str = "Yorkshire",
+        rt_region: str = "YorkshireandTheHumber",
+        region: str = "YorkshireandTheHumber",
+        date: str = "20231103",
+        dir: str = "data/daily",
+        output: str = "data/output",
+        timetable_exceptions: bool = True,
+        zip_gtfs: bool = True,
+        unzip_timetable: bool = False,
+        route_stop_threshold: int = 5,
+        route_types: list = [3],
+        logger=None,
+    ):
+        self.tt_region = tt_region
+        self.rt_region = rt_region
+        self.region = region
+        self.date = date
+        self.dir = dir
+        self.output = output
+        self.timetable_exceptions = timetable_exceptions
+        self.zip_gtfs = zip_gtfs
+        self.unzip_timetable = unzip_timetable
+        self.route_stop_threshold = route_stop_threshold
+        self.route_types = route_types
+        self.weekday = datetime.strptime(date, "%Y%m%d").strftime("%A").lower()
 
-    def load_raw_realtime_data(self) -> pd.DataFrame:
+        # Initialise logger
+        if logger is None:
+            self.logger = logging.getLogger(__name__)
+
+        else:
+            self.logger = logger
+
+    def load_raw_realtime_data(self, region=None) -> pd.DataFrame:
         """
         Collects all realtime data for individual day
 
@@ -41,11 +70,29 @@ class GTFS_Builder:
             df (pandas df): unprocessed realtime data
         """
 
-        to_dir = f"{self.dir}/realtime/"
+        if region is None:
+            region = self.rt_region
+
+        dir = f"data/daily/realtime/{region}/{self.date}/"
         # collate all realtime ingests to single dataframe
-        tables = os.path.join(to_dir, "realtime*.csv")  # noqa: E501
+        tables = os.path.join(dir, "*.csv")  # noqa: E501
         tables = glob.glob(tables)
-        df = pd.concat(map(pd.read_csv, tables), ignore_index=True)
+        dtypes_dict = {
+            "time_ingest": int,
+            "time_transpond": int,
+            "bus_id": str,
+            "trip_id": str,
+            "route_id": str,
+            "current_stop": int,
+            "latitude": float,
+            "longitude": float,
+            "bearing": float,
+            "journey_date": int,
+        }
+
+        df_list = (pd.read_csv(table, dtype=dtypes_dict) for table in tables)
+        df = pd.concat(df_list, ignore_index=True)
+
         df = df.iloc[:, 1:]
         df = df.sort_values("time_ingest")
         df.reset_index(drop=True, inplace=True)
@@ -66,16 +113,9 @@ class GTFS_Builder:
 
         unlabelled_real = df[(df["trip_id"].isna()) & (df["route_id"].isna())]
 
-        unlabelled_real.to_csv(
-            f"{self.dir}/realtime/{self.region}_{self.today}_unlabelled.csv"
-        )
-        labelled_real.to_csv(
-            f"{self.dir}/realtime/{self.region}_{self.today}_labelled.csv"
-        )
-
         return labelled_real, unlabelled_real
 
-    def load_raw_timetable_data(self, logger=None) -> pd.DataFrame:
+    def load_raw_timetable_data(self, region=None) -> pd.DataFrame:
         """
         Collects and concatenates all timetable data for specified
         day, returning all individual service stops (every 'bus
@@ -85,24 +125,27 @@ class GTFS_Builder:
             service_stops (pandas_df): all service stops
         """
 
-        to_dir = f"{self.dir}/timetable"
+        if region is None:
+            region = self.tt_region
+
+        from_dir = f"{self.dir}/timetable/{region}/{self.date}"
 
         if self.unzip_timetable:
             # Unzip timetable.zip
             unzip_GTFS(
-                txt_path=to_dir,
-                zip_path=to_dir,
+                txt_path=from_dir,
+                zip_path=from_dir,
                 file_name_pattern="timetable.zip",
                 logger=logger,
             )
 
         # id services affected by exceptions today only
         calendar_dates = pd.read_csv(
-            f"{to_dir}/calendar_dates.txt",
+            f"{from_dir}/calendar_dates.txt",
             dtype={"service_id": int, "date": int, "exception_type": int},
         )
         calendar_dates = calendar_dates[
-            calendar_dates["date"] == int(self.today)
+            calendar_dates["date"] == int(self.date)
         ]  # must be integer
 
         # N.B. exception_type -> 1: added, 2: dropped
@@ -114,7 +157,8 @@ class GTFS_Builder:
         )
 
         trips = pd.read_csv(
-            f"{to_dir}/trips.txt",
+            f"{from_dir}/trips.txt",
+            engine="python",
             dtype={
                 "route_id": str,
                 "service_id": int,
@@ -126,22 +170,9 @@ class GTFS_Builder:
                 "vehicle_journey_code": str,
             },
         )
-        stops = pd.read_csv(
-            f"{to_dir}/stops.txt",
-            dtype={
-                "stop_id": str,
-                "stop_code": str,
-                "stop_name": str,
-                "stop_lat": float,
-                "stop_lon": float,
-                "wheelchair_boarding": int,
-                "location_type": float,
-                "parent_station": str,
-                "platform_code": str,
-            },
-        )
+
         stop_times = pd.read_csv(
-            f"{to_dir}/stop_times.txt",
+            f"{from_dir}/stop_times.txt",
             dtype={
                 "trip_id": str,
                 "arrival_time": str,
@@ -158,7 +189,7 @@ class GTFS_Builder:
         )
 
         routes = pd.read_csv(
-            f"{to_dir}/routes.txt",
+            f"{from_dir}/routes.txt",
             dtype={
                 "route_id": str,
                 "agency_id": str,
@@ -169,7 +200,9 @@ class GTFS_Builder:
         )
 
         # filter only bus type (not coach, ferry, metro)
-        routes = routes[routes["route_type"] == 3]
+        routes = routes[routes["route_type"].isin(self.route_types)]
+
+        stops = build_stops()
 
         service_stops = pd.merge(
             pd.merge(
@@ -184,7 +217,7 @@ class GTFS_Builder:
         )
 
         calendar = pd.read_csv(
-            f"{to_dir}/calendar.txt",
+            f"{from_dir}/calendar.txt",
             dtype={
                 "service_id": int,
                 "monday": int,
@@ -216,62 +249,19 @@ class GTFS_Builder:
             ]  # noqa: E501
 
         # add initial column with today's date
-        service_stops.insert(loc=0, column="timetable_date", value=self.today)
+        service_stops.insert(loc=0, column="timetable_date", value=self.date)
+        service_stops = service_stops.dropna(subset={"route_type"})
+
+        # drop any service stops running after 23:59:59
+        service_stops = service_stops[
+            service_stops["arrival_time"].str[:2].astype("int") < 24
+        ]
+
+        service_stops = convert_string_time_to_unix(
+            self.date, service_stops, "arrival_time", convert_type="column"
+        )  # noqa: E501
 
         return service_stops
-
-    # def assign_stop_sequence_to_reclaimed(self, reclaimed, timetable):
-
-    #     assigned_df = pd.DataFrame(columns=list(reclaimed.columns))
-
-    #     for trip in reclaimed["trip_id"].unique():
-
-    #         trip_route = timetable[timetable["trip_id"] == trip]
-    #         trip_route_gdf = gpd.GeoDataFrame(
-    #             trip_route.reset_index(drop=True),
-    #             geometry=gpd.points_from_xy(
-    #                 trip_route["stop_lat"], trip_route["stop_lon"]
-    #             ),
-    #             crs=4326,
-    #         )
-    #         trip_route_gdf.to_crs(27700)
-
-    #         if len(trip_route) > 0:
-
-    #             trip_reclaim = reclaimed[reclaimed["trip_id"] == trip]
-    #             trip_reclaim_gdf = gpd.GeoDataFrame(
-    #                 trip_reclaim.reset_index(drop=True),
-    #                 geometry=gpd.points_from_xy(
-    #                     trip_reclaim["latitude"], trip_reclaim["longitude"]
-    #                 ),
-    #                 crs=4326,
-    #             )
-    #             trip_reclaim_gdf.to_crs(27700)
-
-    #             reclaim_aligned_gdf = nearest_neighbor(
-    #                 trip_reclaim_gdf, trip_route_gdf, return_dist=True
-    #             )
-    #             reclaim_nearest_gdf = reclaim_aligned_gdf.loc[
-    #                 reclaim_aligned_gdf.groupby(
-    #                     "current_stop"
-    #                 ).distance.idxmin()  # noqa: E501
-    #             ]
-
-    #             reclaim_nearest_gdf = (
-    #                 reclaim_nearest_gdf[
-    #                     reclaim_nearest_gdf["distance"]
-    #                     < self.nearest_threshold  # noqa: E501
-    #                 ]
-    #                 .sort_values("time_transpond")
-    #                 .reset_index(drop=True)
-    #             )
-
-    #             assigned_df = pd.concat([assigned_df, reclaim_nearest_gdf])
-
-    #         else:
-    #             pass
-
-    #     return assigned_df.reset_index(drop=True)
 
     def prepare_gtfs(self, labelled_real, timetable) -> pd.DataFrame:
         """
@@ -293,46 +283,33 @@ class GTFS_Builder:
 
         # merge timetable time and stop sequence data side-by-side
         tt_rt_merged = pd.merge(
-            tt[["timetable_date", "arrival_time", "trip_id", "stop_sequence"]],
+            tt[["timetable_date", "trip_id", "stop_sequence"]],
             labelled_real[["time_transpond", "trip_id", "current_stop"]],
             left_on=["trip_id", "stop_sequence"],
             right_on=["trip_id", "current_stop"],
         )
 
-        # convert times
-        tt_rt_merged["unix_arrival_time"] = (
-            tt_rt_merged["timetable_date"].astype("str")
-            + " "
-            + tt_rt_merged["arrival_time"]
-        )
-        tt_rt_merged["unix_arrival_time"] = pd.to_datetime(
-            tt_rt_merged["unix_arrival_time"], format="%Y%m%d %H:%M:%S"
-        )
-        tt_rt_merged["unix_arrival_time"] = (
-            tt_rt_merged["unix_arrival_time"] - pd.Timestamp("1970-01-01")
-        ) // pd.Timedelta("1s")
-        tt_rt_merged["unix_arrival_time"] = (
-            tt_rt_merged["unix_arrival_time"] - 3600
-        )  # adjust to GMT
-        tt_rt_merged["dt_arrival_time"] = pd.to_datetime(
-            tt_rt_merged["time_transpond"] + 3600, unit="s"
+        # convert unix time to string
+        # NB this assumes conversion to GMT at the moment!
+        tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
+            tt_rt_merged["time_transpond"], unit="s"
         ).dt.strftime("%H:%M:%S")
 
         # recreate tt with ACTUAL times injected
         gtfs_temp = pd.merge(
             tt,
-            tt_rt_merged[["trip_id", "stop_sequence", "dt_arrival_time"]],
+            tt_rt_merged[["trip_id", "stop_sequence", "dt_time_transpond"]],
             on=["trip_id", "stop_sequence"],
         )
 
         # copy transpond times to arrival time and maintain axis location
-        gtfs_temp["arrival_time"] = gtfs_temp["dt_arrival_time"]
+        gtfs_temp["arrival_time"] = gtfs_temp["dt_time_transpond"]
 
         # aribtrary copying transpond times to departure time
         # (does this matter?)
-        gtfs_temp["departure_time"] = gtfs_temp["dt_arrival_time"]
+        gtfs_temp["departure_time"] = gtfs_temp["dt_time_transpond"]
 
-        gtfs_temp = gtfs_temp.drop(columns=["dt_arrival_time"])
+        gtfs_temp = gtfs_temp.drop(columns=["dt_time_transpond"])
 
         gtfs_temp = gtfs_temp.convert_dtypes({"route_type": "int"})
 
@@ -348,8 +325,8 @@ class GTFS_Builder:
             gtfs_temp (pandas_df): exploded timetable data with realtime times
         """
 
-        from_dir = f"{self.dir}/timetable"
-        to_dir = f"{self.dir}/realtime_gtfs"
+        from_dir = f"{self.dir}/timetable/{self.tt_region}/{self.date}"
+        to_dir = f"{self.output}"
 
         if not os.path.exists(to_dir):
             os.mkdir(to_dir)
@@ -449,8 +426,14 @@ class GTFS_Builder:
         shutil.copy(f"{from_dir}/stops.txt", f"{to_dir}/stops.txt")  # noqa: E501
 
         if self.zip_gtfs:
-            zip_name = f"{self.region}_{self.today}_realtimegtfs.zip"
+            zip_name = f"{self.tt_region}_{self.date}_realtimegtfs.zip"
             zip_files(to_dir, zip_name)
+
+            # remove individual GTFS .txt components
+            for fileName in listdir(to_dir):
+                if fileName.endswith(".txt"):
+                    os.remove(f"{to_dir}/{fileName}")
+            self.logger.info("Output folder cleaned")
 
         return None
 
@@ -468,8 +451,12 @@ if __name__ == "__main__":
     )
 
     # load toml config
-    config = toml.load("config.toml")["data_ingest"]
-    builder = GTFS_Builder(config)
+    config = toml.load("config.toml")
+    builder = GTFS_Builder(**config["generic"], **config["data_ingest"])
+
+    if not os.path.exists("data/daily/gb_stops.csv"):
+        logger.info("Importing stops from NaPTAN site")
+        import_file_from_naptan()
 
     logger.info("Loading all realtime data")
     real = builder.load_raw_realtime_data()
@@ -483,8 +470,11 @@ if __name__ == "__main__":
     logger.info(f"Dedup labelled realtime data: {len(labelled_real)} rows")
     logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
+    logger.info("Building stops data from NaPTAN")
+    stops = build_stops(logger=logger)
+
     logger.info("Loading all timetable data")
-    timetable = builder.load_raw_timetable_data(logger=logger)
+    timetable = builder.load_raw_timetable_data()
 
     logger.info(
         "Extract timetable data aligned to realtime activity \
@@ -493,9 +483,9 @@ if __name__ == "__main__":
     gtfs = builder.prepare_gtfs(labelled_real, timetable)
 
     logger.info("Write updated GTFS files")
-    builder.write_gtfs(gtfs)
+    builder.write_gtfs(gtfs_temp=gtfs)
 
-    if config["zip_gtfs"]:
+    if config["data_ingest"]["zip_gtfs"]:
         logger.info("Zipping GTFS files")
 
     logger.info("GTFS Builder complete....")
