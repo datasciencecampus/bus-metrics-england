@@ -215,7 +215,7 @@ def apply_geography_label(df, bounds, geography="LSOA", type="timetable"):
     if geography == "LSOA":
         df["geometry"] = gpd.points_from_xy(df[lon], df[lat])  # noqa: E501
         df = gpd.GeoDataFrame(df)
-        df = df.set_crs("4326").to_crs("27700")
+        df = df.set_crs("4326")  # .to_crs("27700")
 
         df_labelled = df.sjoin(bounds, how="left", predicate="within")
 

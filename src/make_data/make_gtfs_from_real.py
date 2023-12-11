@@ -136,7 +136,7 @@ class GTFS_Builder:
                 txt_path=from_dir,
                 zip_path=from_dir,
                 file_name_pattern="timetable.zip",
-                logger=logger,
+                logger=self.logger,
             )
 
         # id services affected by exceptions today only

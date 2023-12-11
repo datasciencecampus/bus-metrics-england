@@ -1,11 +1,14 @@
 from datetime import datetime
 import logging
 import toml
+import os
 from src.make_data.make_gtfs_from_real import GTFS_Builder
+from src.utils.call_data_from_bucket import ingest_file_from_gcp
 from src.utils.preprocessing import (
     apply_geography_label,
     convert_string_time_to_unix,
 )  # noqa: E501
+from src.utils.resourcing import ingest_data_from_geoportal
 import pandas as pd
 import geopandas as gpd
 import numpy as np
@@ -44,6 +47,7 @@ class Schedule_Builder:
         time_to: float = 10.0,
         partial_timetable: bool = True,
         output_unlabelled_bulk: bool = False,
+        boundaries: str = "data/LSOA_2021_boundaries.geojson",
         logger: logging.Logger = (None,),
     ):
         self.tt_regions = tt_regions
@@ -54,6 +58,7 @@ class Schedule_Builder:
         self.time_to = time_to
         self.partial_timetable = partial_timetable
         self.output_unlabelled_bulk = output_unlabelled_bulk
+        self.boundaries = boundaries
         self.gtfs = GTFS_Builder(**config["generic"], **config["data_ingest"])
 
         # Initialise logger
@@ -168,6 +173,25 @@ if __name__ == "__main__":
         **config["generic"], **config["schedules"]
     )  # noqa: E501
     date = config["generic"]["date"]
+    boundaries_endpoints = config["setup"]["boundaries_endpoints"]
+    boundaries = config["schedules"]["boundaries"]
+    query_params = config["setup"]["query_params"]
+
+    for tt_region in config["schedules"]["tt_regions"]:
+        ingest_file_from_gcp(
+            logger=logger,
+            region=tt_region,
+            date=date,
+            download_type="timetable",
+        )
+
+    for rt_region in config["schedules"]["rt_regions"]:
+        ingest_file_from_gcp(
+            logger=logger,
+            region=rt_region,
+            date=date,
+            download_type="realtime",
+        )
 
     logger.info("Loading and building from raw timetable data")
     tt = pd.DataFrame()
@@ -177,7 +201,15 @@ if __name__ == "__main__":
         tt = pd.concat([tt, tti])
 
     logger.info("Merging in geography labels to timetable")
-    bounds = gpd.read_file("data/LSOA_2021_boundaries.geojson")
+    boundary_filename = f"data/{boundaries}"
+    if not os.path.exists(boundary_filename):
+        logger.info("Ingesting boundary data from ONS geoportal")
+        ingest_data_from_geoportal(
+            boundaries_endpoints[boundaries],
+            query_params,
+            filename=boundary_filename,  # noqa: E501
+        )
+    bounds = gpd.read_file(boundary_filename)
     # England LSOAs only
     bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
     tt = apply_geography_label(tt, bounds)
