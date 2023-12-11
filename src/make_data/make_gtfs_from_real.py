@@ -291,9 +291,18 @@ class GTFS_Builder:
 
         # convert unix time to string
         # NB this assumes conversion to GMT at the moment!
+        # tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
+        #     tt_rt_merged["time_transpond"], unit="s"
+        # ).dt.strftime("%H:%M:%S")
+
         tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
             tt_rt_merged["time_transpond"], unit="s"
-        ).dt.strftime("%H:%M:%S")
+        )
+        tt_rt_merged["dt_time_transpond"] = (
+            tt_rt_merged["dt_time_transpond"]
+            .apply(lambda x: x.tz_localize("UTC").tz_convert("Europe/London"))
+            .dt.strftime("%H:%M:%S")
+        )
 
         # recreate tt with ACTUAL times injected
         gtfs_temp = pd.merge(
