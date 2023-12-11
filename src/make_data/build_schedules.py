@@ -3,6 +3,7 @@ import logging
 import toml
 import os
 from src.make_data.make_gtfs_from_real import GTFS_Builder
+from src.utils.call_data_from_bucket import ingest_file_from_gcp
 from src.utils.preprocessing import (
     apply_geography_label,
     convert_string_time_to_unix,
@@ -175,6 +176,22 @@ if __name__ == "__main__":
     boundaries_endpoints = config["setup"]["boundaries_endpoints"]
     boundaries = config["schedules"]["boundaries"]
     query_params = config["setup"]["query_params"]
+
+    for tt_region in config["schedules"]["tt_regions"]:
+        ingest_file_from_gcp(
+            logger=logger,
+            region=tt_region,
+            date=date,
+            download_type="timetable",
+        )
+
+    for rt_region in config["schedules"]["rt_regions"]:
+        ingest_file_from_gcp(
+            logger=logger,
+            region=rt_region,
+            date=date,
+            download_type="realtime",
+        )
 
     logger.info("Loading and building from raw timetable data")
     tt = pd.DataFrame()
