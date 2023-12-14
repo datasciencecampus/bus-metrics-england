@@ -5,6 +5,7 @@ import os
 from os import listdir
 import glob
 import pandas as pd
+import polars as pl
 import shutil
 from src.utils.preprocessing import (
     deduplicate,
@@ -22,9 +23,6 @@ class GTFS_Builder:
     Takes realtime and timetable data for a specified day, deduplicating
     and replacing timetabled times with actual realtime times. An updated
     GTFS folder is returned.
-
-    Args:
-        config (dict): data_ingest content of config file.
     """
 
     def __init__(
@@ -62,12 +60,15 @@ class GTFS_Builder:
         else:
             self.logger = logger
 
-    def load_raw_realtime_data(self, region=None) -> pd.DataFrame:
+    def load_raw_realtime_data(self, region=None) -> pl.DataFrame:
         """
         Collects all realtime data for individual day
 
+        Args:
+            region (str; optional): region name
+
         Returns:
-            df (pandas df): unprocessed realtime data
+            df (polars df): unprocessed realtime data
         """
 
         if region is None:
@@ -75,54 +76,51 @@ class GTFS_Builder:
 
         dir = f"data/daily/realtime/{region}/{self.date}/"
         # collate all realtime ingests to single dataframe
-        tables = os.path.join(dir, "*.csv")  # noqa: E501
+        tables = os.path.join(dir, "*.csv")
         tables = glob.glob(tables)
-        dtypes_dict = {
-            "time_ingest": int,
-            "time_transpond": int,
-            "bus_id": str,
-            "trip_id": str,
-            "route_id": str,
-            "current_stop": int,
-            "latitude": float,
-            "longitude": float,
-            "bearing": float,
-            "journey_date": int,
-        }
+        df_list = (pl.read_csv(table, ignore_errors=True) for table in tables)
+        df = pl.concat(df_list)
 
-        df_list = (pd.read_csv(table, dtype=dtypes_dict) for table in tables)
-        df = pd.concat(df_list, ignore_index=True)
-
-        df = df.iloc[:, 1:]
-        df = df.sort_values("time_ingest")
-        df.reset_index(drop=True, inplace=True)
         return df
 
-    def split_realtime_data(self, df) -> (pd.DataFrame, pd.DataFrame):
+    def split_realtime_data(
+        self, df: pl.DataFrame
+    ) -> (pl.DataFrame, pl.DataFrame):  # noqa: E501
         """
         Collects and concatenates all realtime data for specified day
 
+        Args:
+            df (polars df): unprocessed realtime data
+
         Returns:
-            labelled_real (pandas df): rows with trip_id & route_id
-            unlabelled_real (pandas df): row with trip_id & route_id MISSING
+            labelled_real (polars df): rows with trip_id & route_id
+            unlabelled_real (polars df): row with trip_id & route_id MISSING
         """
 
-        labelled_real = unlabelled_real = df[
-            (~df["trip_id"].isna()) & (~df["route_id"].isna())
-        ]
-
-        unlabelled_real = df[(df["trip_id"].isna()) & (df["route_id"].isna())]
+        labelled_real = df.filter(
+            (pl.col("trip_id").is_not_null())
+            & (pl.col("route_id").is_not_null())  # noqa: E501
+        )
+        unlabelled_real = df.filter(
+            (pl.col("trip_id").is_null()) & (pl.col("route_id").is_null())
+        )
 
         return labelled_real, unlabelled_real
 
-    def load_raw_timetable_data(self, region=None) -> pd.DataFrame:
+    def load_raw_timetable_data(
+        self, stops: pl.DataFrame, region: str = None
+    ) -> pl.DataFrame:
         """
         Collects and concatenates all timetable data for specified
         day, returning all individual service stops (every 'bus
         at stop' activity) for the day.
 
+        Args:
+            stops (polars df): NAPTAN stops data
+            region (str; optional): region name
+
         Returns:
-            service_stops (pandas_df): all service stops
+            service_stops (polars df): all service stops
         """
 
         if region is None:
@@ -139,155 +137,96 @@ class GTFS_Builder:
                 logger=self.logger,
             )
 
-        # id services affected by exceptions today only
-        calendar_dates = pd.read_csv(
-            f"{from_dir}/calendar_dates.txt",
-            dtype={"service_id": int, "date": int, "exception_type": int},
+        calendar_dates = pl.read_csv(
+            f"{from_dir}/calendar_dates.txt", ignore_errors=True
         )
-        calendar_dates = calendar_dates[
-            calendar_dates["date"] == int(self.date)
-        ]  # must be integer
-
-        # N.B. exception_type -> 1: added, 2: dropped
-        exception_adds = list(
-            calendar_dates["service_id"][calendar_dates["exception_type"] == 1]
-        )
-        exception_drops = list(
-            calendar_dates["service_id"][calendar_dates["exception_type"] == 2]
-        )
-
-        trips = pd.read_csv(
-            f"{from_dir}/trips.txt",
-            engine="python",
-            dtype={
-                "route_id": str,
-                "service_id": int,
-                "trip_id": str,
-                "trip_headsign": str,
-                "block_id": str,
-                "shape_id": str,
-                "wheelchair_accessible": int,
-                "vehicle_journey_code": str,
-            },
-        )
-
-        stop_times = pd.read_csv(
+        calendar = pl.read_csv(f"{from_dir}/calendar.txt", ignore_errors=True)
+        routes = pl.read_csv(f"{from_dir}/routes.txt", ignore_errors=True)
+        stop_times = pl.read_csv(
             f"{from_dir}/stop_times.txt",
-            dtype={
-                "trip_id": str,
-                "arrival_time": str,
-                "departure_time": str,
-                "stop_id": str,
-                "stop_sequence": int,
-                "stop_headsign": str,
-                "pickup_type": int,
-                "drop_off_type": int,
-                "shape_dist_traveled": float,
-                "timepoint": int,
-                "stop_direction_name": str,
-            },
+            ignore_errors=True,
+            dtypes={"stop_id": pl.Utf8},
         )
 
-        routes = pd.read_csv(
-            f"{from_dir}/routes.txt",
-            dtype={
-                "route_id": str,
-                "agency_id": str,
-                "route_short_name": str,
-                "route_long_name": float,
-                "route_type": int,
-            },
+        trips = pl.read_csv(f"{from_dir}/trips.txt", ignore_errors=True)
+
+        calendar_dates = calendar_dates.filter(
+            pl.col("date").cast(pl.Utf8) == self.date
+        )
+        exception_drops = calendar_dates.filter(
+            pl.col("exception_type") == 2
+        ).select(  # noqa: E501
+            pl.col("service_id")
+        )
+        exception_adds = calendar_dates.filter(pl.col("exception_type") == 1)[
+            "service_id"
+        ].to_list()
+
+        # filter routes to required route_type(s)
+        routes = routes.filter(pl.col("route_type").is_in(self.route_types))
+
+        service_stops = (
+            trips.join(stop_times, on="trip_id")
+            .join(stops, on="stop_id", how="left")
+            .join(routes, on="route_id", how="left")
         )
 
-        # filter only bus type (not coach, ferry, metro)
-        routes = routes[routes["route_type"].isin(self.route_types)]
-
-        stops = build_stops()
-
-        service_stops = pd.merge(
-            pd.merge(
-                pd.merge(trips, stop_times, on="trip_id"),
-                stops,
-                on="stop_id",
-                how="left",  # noqa: E501
-            ),
-            routes,
-            on="route_id",
-            how="left",
+        # drop & add exceptions
+        calendar = calendar.join(exception_drops, on="service_id", how="anti")
+        active_services = calendar.filter(
+            pl.col(self.weekday)
+            == 1 | pl.col("service_id").is_in(exception_adds)  # noqa: E501
+        )["service_id"].to_list()
+        service_stops = service_stops.filter(
+            pl.col("service_id").is_in(active_services)
+        )
+        service_stops = service_stops.drop_nulls(subset="route_type")
+        service_stops = service_stops.with_columns(
+            pl.lit(self.date).alias("timetable_date")
+        )
+        service_stops = service_stops.filter(
+            pl.col("arrival_time").str.slice(0, 2).cast(pl.UInt32) < 24
         )
 
-        calendar = pd.read_csv(
-            f"{from_dir}/calendar.txt",
-            dtype={
-                "service_id": int,
-                "monday": int,
-                "tuesday": int,
-                "wednesday": int,
-                "thursday": int,
-                "friday": int,
-                "saturday": int,
-                "sunday": int,
-                "start_date": int,
-                "end_date": int,
-            },
-        )
-
-        if self.timetable_exceptions:
-            # drop rows for dropped services by exception
-            calendar = calendar[~calendar["service_id"].isin(exception_drops)]
-
-            # filter only services for today's weekday
-            calendar = calendar[calendar[self.weekday] == 1]
-
-            # active services plus those added by exception
-            active_services = list(calendar["service_id"].unique())
-            active_services = list(set(active_services) | set(exception_adds))
-
-            # filter service stops to active services only
-            service_stops = service_stops[
-                service_stops["service_id"].isin(active_services)
-            ]  # noqa: E501
-
-        # add initial column with today's date
-        service_stops.insert(loc=0, column="timetable_date", value=self.date)
-        service_stops = service_stops.dropna(subset={"route_type"})
-
-        # drop any service stops running after 23:59:59
-        service_stops = service_stops[
-            service_stops["arrival_time"].str[:2].astype("int") < 24
-        ]
+        # temp convert from polars to pandas
+        service_stops = service_stops.to_pandas()
 
         service_stops = convert_string_time_to_unix(
             self.date, service_stops, "arrival_time", convert_type="column"
         )  # noqa: E501
 
+        # temp convert from pandas to polars
+        service_stops = pl.from_pandas(service_stops)
+
         return service_stops
 
-    def prepare_gtfs(self, labelled_real, timetable) -> pd.DataFrame:
+    def prepare_gtfs(
+        self, labelled_real: pl.DataFrame, timetable: pl.DataFrame
+    ) -> pl.DataFrame:
         """
         Extracts all timetable rows aligned to trip_id active in realtime data,
         replacing timetabled times with realtime times.
 
         Args:
-            labelled_real (pandas df): rows with trip_id & route_id
-            timetable (pandas df): exploded timetable data
+            labelled_real (polars df): rows with trip_id & route_id
+            timetable (polars df): exploded timetable data
 
         Returns:
-            gtfs_temp (pandas df): exploded timetable data with realtime times
+            gtfs_temp (polars df): exploded timetable data with realtime times
         """
-        trip_ids = labelled_real["trip_id"].dropna().unique()  # 1856 trip_ids
+        trip_ids = set(labelled_real["trip_id"].drop_nans().to_list())
 
-        # filter timetable to include only the trip_ids reflected
-        # in the RT data
-        tt = timetable[timetable["trip_id"].isin(trip_ids)]
+        # filter timetable to only RT trip_ids
+        tt = timetable.filter(pl.col("trip_id").is_in(trip_ids))
 
-        # merge timetable time and stop sequence data side-by-side
-        tt_rt_merged = pd.merge(
-            tt[["timetable_date", "trip_id", "stop_sequence"]],
+        tt_rt_merged = tt[["timetable_date", "trip_id", "stop_sequence"]].join(
             labelled_real[["time_transpond", "trip_id", "current_stop"]],
             left_on=["trip_id", "stop_sequence"],
             right_on=["trip_id", "current_stop"],
         )
+
+        # temp convert from polars to pandas
+        tt_rt_merged = tt_rt_merged.to_pandas()
 
         # convert unix time to string
         # NB this assumes conversion to GMT at the moment!
@@ -295,34 +234,27 @@ class GTFS_Builder:
             tt_rt_merged["time_transpond"], unit="s"
         ).dt.strftime("%H:%M:%S")
 
+        # temp convert from pandas to polars
+        tt_rt_merged = pl.from_pandas(tt_rt_merged)
+
         # recreate tt with ACTUAL times injected
-        gtfs_temp = pd.merge(
-            tt,
+        gtfs_temp = tt.join(
             tt_rt_merged[["trip_id", "stop_sequence", "dt_time_transpond"]],
             on=["trip_id", "stop_sequence"],
         )
 
-        # copy transpond times to arrival time and maintain axis location
-        gtfs_temp["arrival_time"] = gtfs_temp["dt_time_transpond"]
-
-        # aribtrary copying transpond times to departure time
-        # (does this matter?)
-        gtfs_temp["departure_time"] = gtfs_temp["dt_time_transpond"]
-
-        gtfs_temp = gtfs_temp.drop(columns=["dt_time_transpond"])
-
-        gtfs_temp = gtfs_temp.convert_dtypes({"route_type": "int"})
-
-        gtfs_temp = gtfs_temp.sort_values(["trip_id", "stop_sequence"])
+        gtfs_temp = gtfs_temp.rename({"dt_time_transpond": "arrival_time"})
+        gtfs_temp["departure_time"] = gtfs_temp["arrival_time"]
+        gtfs_temp = gtfs_temp.sort(["trip_id", "stop_sequence"])
 
         return gtfs_temp
 
-    def write_gtfs(self, gtfs_temp):
+    def write_gtfs(self, gtfs_temp: pl.DataFrame) -> None:
         """
         Write/export updated realtime/timetable data to individual GTFS files.
 
         Args:
-            gtfs_temp (pandas_df): exploded timetable data with realtime times
+            gtfs_temp (polars_df): exploded timetable data with realtime times
         """
 
         from_dir = f"{self.dir}/timetable/{self.tt_region}/{self.date}"
@@ -341,12 +273,10 @@ class GTFS_Builder:
                 "block_id",
                 "shape_id",
                 "wheelchair_accessible",
-                # "trip_direction_name",
+                "trip_direction_name",
                 "vehicle_journey_code",
             ]
-        ].drop_duplicates().to_csv(
-            f"{to_dir}/trips.txt", index=False
-        )  # noqa: E501
+        ].unique().write_csv(f"{to_dir}/trips.txt")
 
         # reverse-engineered stop_times.txt
         gtfs_temp[
@@ -361,9 +291,9 @@ class GTFS_Builder:
                 "drop_off_type",
                 "shape_dist_traveled",
                 "timepoint",
-                # "stop_direction_name",
+                "stop_direction_name",
             ]
-        ].to_csv(f"{to_dir}/stop_times.txt", index=False)
+        ].unique().write_csv(f"{to_dir}/stop_times.txt")
 
         # reverse-engineered stop_times.txt
         gtfs_temp[
@@ -374,41 +304,28 @@ class GTFS_Builder:
                 "route_long_name",
                 "route_type",
             ]
-        ].drop_duplicates().to_csv(
-            f"{to_dir}/routes.txt", index=False
+        ].unique().write_csv(
+            f"{to_dir}/routes.txt"
         )  # noqa: E501
 
-        cal_dates = pd.DataFrame(
-            columns=["service_id", "date", "exception_type"]
+        # empty file as all exceptions accounted for
+        cal_dates = pl.DataFrame(
+            data=None,
+            schema={
+                "service_id": pl.Utf8,
+                "date": pl.Utf8,
+                "exception_type": pl.Int32,
+            },  # noqa: E501
         )  # noqa: E501
-        cal_dates.to_csv(f"{to_dir}/calendar_dates.txt", index=False)  # noqa: E501
+        cal_dates.write_csv(f"{to_dir}/calendar_dates.txt")
 
-        # arbitrarily adding the first date we see
-        #  - programmatic approach required for multiple days
-        date = gtfs_temp.loc[0, "timetable_date"]
-        calendar = pd.DataFrame(
-            gtfs_temp["service_id"].unique(), columns=["service_id"]
-        )
+        calendar = pl.read_csv(f"{from_dir}/calendar.txt", ignore_errors=True)
+        calendar = gtfs_temp["service_id"].join(
+            calendar, on="service_id", how="left"
+        )  # noqa: E501
+        calendar[["start_date", "end_date"]] = self.date
 
-        # set calendar columns up
-        calendar[
-            [
-                "monday",
-                "tuesday",
-                "wednesday",
-                "thursday",
-                "friday",
-                "saturday",
-                "sunday",
-                "start_date",
-                "end_date",
-            ]
-        ] = (0, 0, 0, 0, 0, 0, 0, date, date)
-
-        # Set 1 to weekayday column
-        calendar[self.weekday] = 1
-
-        calendar.to_csv(f"{to_dir}/calendar.txt", index=False)
+        calendar.unique().write_csv(f"{to_dir}/calendar.txt")
 
         # copy other admin files across - no changes required
         shutil.copy(
@@ -462,6 +379,11 @@ if __name__ == "__main__":
     real = builder.load_raw_realtime_data()
 
     labelled_real, unlabelled_real = builder.split_realtime_data(real)
+
+    # # temp conversion to from polars to pandas
+    # labelled_real = labelled_real.to_pandas()
+    # unlabelled_real = unlabelled_real.to_pandas()
+
     logger.info(f"Raw labelled realtime data: {len(labelled_real)} rows")
     logger.info(f"Raw UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
@@ -471,10 +393,10 @@ if __name__ == "__main__":
     logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
     logger.info("Building stops data from NaPTAN")
-    stops = build_stops(logger=logger)
+    stops = build_stops()
 
     logger.info("Loading all timetable data")
-    timetable = builder.load_raw_timetable_data()
+    timetable = builder.load_raw_timetable_data(stops=stops)
 
     logger.info(
         "Extract timetable data aligned to realtime activity \
