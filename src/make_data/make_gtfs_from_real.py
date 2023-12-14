@@ -230,9 +230,18 @@ class GTFS_Builder:
 
         # convert unix time to string
         # NB this assumes conversion to GMT at the moment!
+        # tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
+        #     tt_rt_merged["time_transpond"], unit="s"
+        # ).dt.strftime("%H:%M:%S")
+
         tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
             tt_rt_merged["time_transpond"], unit="s"
-        ).dt.strftime("%H:%M:%S")
+        )
+        tt_rt_merged["dt_time_transpond"] = (
+            tt_rt_merged["dt_time_transpond"]
+            .apply(lambda x: x.tz_localize("UTC").tz_convert("Europe/London"))
+            .dt.strftime("%H:%M:%S")
+        )
 
         # temp convert from pandas to polars
         tt_rt_merged = pl.from_pandas(tt_rt_merged)

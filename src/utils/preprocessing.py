@@ -130,10 +130,16 @@ def convert_string_time_to_unix(
     """Add additional column: UNIX representation of timetable time formats"""
 
     if convert_type == "single":
-        timestamp = pd.to_datetime(
-            str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+        timestamp = (
+            pd.to_datetime(
+                str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+            )  # noqa:E501
+            .tz_localize("Europe/London")
+            .tz_convert("UTC")
         )
-        timestamp = (timestamp - pd.Timestamp("1970-01-01")) // pd.Timedelta(
+        timestamp = (
+            timestamp - pd.Timestamp("1970-01-01", tz="UTC")
+        ) // pd.Timedelta(  # noqa:E501
             "1s"
         )  # noqa: E501
 
@@ -143,8 +149,11 @@ def convert_string_time_to_unix(
         df["unix_arrival_time"] = pd.to_datetime(
             str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
         )
+        df["unix_arrival_time"] = df["unix_arrival_time"].apply(
+            lambda x: x.tz_localize("Europe/London").tz_convert("UTC")
+        )
         df["unix_arrival_time"] = (
-            df["unix_arrival_time"] - pd.Timestamp("1970-01-01")
+            df["unix_arrival_time"] - pd.Timestamp("1970-01-01", tz="UTC")
         ) // pd.Timedelta(
             "1s"
         )  # noqa: E501
