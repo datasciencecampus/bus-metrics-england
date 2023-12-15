@@ -7,7 +7,6 @@ from src.utils.call_data_from_bucket import ingest_file_from_gcp
 from src.utils.preprocessing import (
     apply_geography_label,
     convert_string_time_to_unix,
-    build_stops,
 )  # noqa: E501
 from src.utils.resourcing import ingest_data_from_geoportal
 import pandas as pd
@@ -84,6 +83,8 @@ class Schedule_Builder:
         # df["route_id"] = df["route_id"].replace(".0", "")
 
         df = df.to_pandas()
+
+        # TODO: refactor to polars
         # slicing timetable with 30 minute buffers either side of
         # realtime window
         datestamp = convert_string_time_to_unix(
@@ -98,6 +99,7 @@ class Schedule_Builder:
                 & (df["unix_arrival_time"] < tt_time_to)
             ]  # noqa: E501
 
+        # TODO: is this unique identifier needed?
         df["UID"] = (
             df["timetable_date"].astype(str)
             + "_"
@@ -201,18 +203,37 @@ if __name__ == "__main__":
             download_type="realtime",
         )
 
-    logger.info("Building stops data from NaPTAN")
-    stops = build_stops()
+    logger.info("Loading NAPTAN-geography lookup table")
+    stops = pl.read_csv("data/daily/gb_stops_labelled.csv")
 
     # TODO: refactor to polars
     logger.info("Loading and building from raw timetable data")
-    tt = pd.DataFrame()
+    tt_cols = [
+        "UID",
+        "unix_arrival_time",
+        "trip_id",
+        "route_id",
+        "service_id",
+        "stop_sequence",
+        "trip_headsign",
+        "stop_id",
+        "LSOA21CD",
+        "LSOA21NM",
+        "stop_lat",
+        "stop_lon",
+    ]
+    trigger = 0
     for region in config["schedules"]["tt_regions"]:
         logger.info(f"Processing timetable: {region}: {date}")
         tti = schedule_build.build_timetable(stops, region)
-        tt = pd.concat([tt, tti])
+        tti = pl.from_pandas(tti)
+        tti = tti[tt_cols]
+        if trigger == 0:
+            tt = tti.clone()
+        else:
+            tt = pl.concat([tt, tti], how="vertical_relaxed")
+        trigger += 1
 
-    logger.info("Merging in geography labels to timetable")
     boundary_filename = f"data/{boundaries}"
     if not os.path.exists(boundary_filename):
         logger.info("Ingesting boundary data from ONS geoportal")
@@ -221,58 +242,55 @@ if __name__ == "__main__":
             query_params,
             filename=boundary_filename,  # noqa: E501
         )
+
+    logger.info("Loading boundary data to memory")
     bounds = gpd.read_file(boundary_filename)
     # England LSOAs only
     bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
-    tt = apply_geography_label(tt, bounds)
-
-    # convert from geopandas to pandas to polars
-    tt = pd.DataFrame(tt)
-
-    # TODO:
-    tt = pl.from_pandas(
-        tt
-    )  # pyarrow.lib.ArrowTypeError: Did not pass numpy.dtype object
-
-    tt = tt[
-        [
-            "UID",
-            "unix_arrival_time",
-            "trip_id",
-            "route_id",
-            "service_id",
-            "stop_sequence",
-            "trip_headsign",
-            "stop_id",
-            "LSOA21CD",
-            "LSOA21NM",
-            "stop_lat",
-            "stop_lon",
-        ]
-    ]
-
     logger.info("Diagnostics: timetable coverage by LSOA")
     # illustrative output of timetabled service stops by LSOA
-    tt_lsoa_coverage = tt.groupby(pl.col("trip_id")).agg(pl.count())
-    tt_lsoa_coverage = tt_lsoa_coverage.join(
-        bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    tt = tt.to_pandas()
+    tt_lsoa_coverage = pd.DataFrame(
+        tt["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    tt_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        tt_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
     )
+    tt_lsoa_coverage.to_csv(f"data/daily/metrics/tt_lsoa_coverage_{date}.csv")
+    # bounds = pd.DataFrame(bounds)
+    # # slice to mitigate dtype issues in redundant columns
+    # bounds = bounds[["LSOA21CD", "LSOA21NM", "geometry"]]
+    # bounds = pl.from_pandas(bounds)
 
-    tt_lsoa_coverage.write_csv(
-        f"data/daily/metrics/tt_lsoa_coverage_{date}.csv"
-    )  # noqa: E501
+    # logger.info("Diagnostics: timetable coverage by LSOA")
+    # # illustrative output of timetabled service stops by LSOA
+    # tt_lsoa_coverage = tt.group_by(pl.col("trip_id")).agg(pl.count())
+    # tt_lsoa_coverage = tt_lsoa_coverage.join(
+    #     bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    # )
+
+    # tt_lsoa_coverage.write_csv(
+    #     f"data/daily/metrics/tt_lsoa_coverage_{date}.csv"
+    # )  # noqa: E501
 
     logger.info("Loading and building from raw realtime data")
-    rt = pl.DataFrame()
-    rt_u = pl.DataFrame()
+    trigger = 0
     for region in config["schedules"]["rt_regions"]:
         logger.info(f"Processing realtime: {region}: {date}")
         rti, rti_u = schedule_build.build_realtime(region=region)
         rti = rti.select(
             ["UID", "time_transpond", "bus_id", "latitude", "longitude"]
         )  # noqa: E501
-        rt = pl.concat([rt, rti])
-        rt_u = pl.concat([rt_u, rti_u])
+        if trigger == 0:
+            rt = rti.clone()
+            rt_u = rti_u.clone()
+        else:
+            rt = pl.concat([rt, rti], how="vertical_relaxed")
+            rt_u = pl.concat([rt_u, rti_u], how="vertical_relaxed")
+        trigger += 1
 
     # temp conversion to pandas
     rt = rt.to_pandas()
@@ -280,54 +298,91 @@ if __name__ == "__main__":
 
     logger.info("Diagnostics: realtime coverage by LSOA")
     rt = apply_geography_label(rt, bounds, type="realtime")
-
-    # temp conversion back to polars
-    rt = pd.DataFrame(rt)
-    rt = pl.from_pandas(rt)
-
+    rt = rt.reset_index(drop=True)
     # illustrative output of realtime service stops by LSOA
-    rt_lsoa_coverage = rt.groupby(pl.col("LSOA21CD")).agg(pl.count())
-    rt_lsoa_coverage = rt_lsoa_coverage.join(
-        bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    rt_lsoa_coverage = pd.DataFrame(
+        rt["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    rt_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        rt_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
     )
+    rt_lsoa_coverage.to_csv(f"data/daily/metrics/rt_lsoa_coverage_{date}.csv")
 
-    rt_lsoa_coverage.write_csv(
-        f"data/daily/metrics/rt_lsoa_coverage_{date}.csv"
-    )  # noqa: E501
+    # # temp conversion back to polars
+    # rt = pl.from_pandas(rt)
+
+    # # illustrative output of realtime service stops by LSOA
+    # rt_lsoa_coverage = rt.groupby(pl.col("LSOA21CD")).agg(pl.count())
+    # rt_lsoa_coverage = rt_lsoa_coverage.join(
+    #     bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    # )
+
+    # rt_lsoa_coverage.write_csv(
+    #     f"data/daily/metrics/rt_lsoa_coverage_{date}.csv"
+    # )  # noqa: E501
 
     logger.info("Diagnostics: UNLABELLED realtime coverage by LSOA")
 
     # illustrative output of unlabelled RT rows by LSOA
     rt_u = apply_geography_label(rt_u, bounds, type="realtime")
-    rt_u = pl.from_pandas(rt_u)
-
+    rt_u = rt_u.reset_index(drop=True)
     if config["schedules"]["output_unlabelled_bulk"]:
         logger.info("Exporting unlabelled RT data to file")
-        rt_u.write_csv("data/daily/unlabelled_rt.csv")
+        rt_u.to_csv("data/daily/unlabelled_rt.csv")
     else:
         logger.info("Unlabelled data export bypassed by user")
-
-    rt_u_lsoa_coverage = rt_u.groupby(pl.col("LSOA21CD")).agg(pl.count())
-    rt_u_lsoa_coverage = rt_u_lsoa_coverage.join(
-        bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    rt_u_lsoa_coverage = pd.DataFrame(
+        rt_u["LSOA21CD"].value_counts()
+    ).reset_index()  # noqa: E501
+    rt_u_lsoa_coverage = pd.merge(
+        bounds[["LSOA21CD", "LSOA21NM"]],
+        rt_u_lsoa_coverage,
+        on="LSOA21CD",
+        how="left",  # noqa: E501
     )
-
-    rt_u_lsoa_coverage.write_csv(
+    rt_u_lsoa_coverage.to_csv(
         f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
     )  # noqa: E501
+    # rt_u = pl.from_pandas(rt_u)
+
+    # if config["schedules"]["output_unlabelled_bulk"]:
+    #     logger.info("Exporting unlabelled RT data to file")
+    #     rt_u.write_csv("data/daily/unlabelled_rt.csv")
+    # else:
+    #     logger.info("Unlabelled data export bypassed by user")
+
+    # rt_u_lsoa_coverage = rt_u.groupby(pl.col("LSOA21CD")).agg(pl.count())
+    # rt_u_lsoa_coverage = rt_u_lsoa_coverage.join(
+    #     bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
+    # )
+
+    # rt_u_lsoa_coverage.write_csv(
+    #     f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
+    # )  # noqa: E501
 
     logger.info("Writing schedule to file")
     # only service stops common in RT and TT
-    schedule = (
-        rt[["UID", "time_transpond", "bus_id"]]
-        .join(tt, on="UID", how="inner")
-        .unique()  # noqa: E501
+    schedule = pd.merge(
+        rt[["UID", "time_transpond", "bus_id"]], tt, on="UID", how="inner"
     )
+    schedule = schedule.drop_duplicates()  # TODO: check if req'd
+    schedule.to_csv(f"data/daily/schedules/schedule_england_{date}.csv")
 
-    schedule.write_csv(f"data/daily/schedules/schedule_england_{date}.csv")
+    # logger.info("Writing schedule to file")
+    # # only service stops common in RT and TT
+    # schedule = (
+    #     rt[["UID", "time_transpond", "bus_id"]]
+    #     .join(tt, on="UID", how="inner")
+    #     .unique()  # noqa: E501
+    # )
+
+    # schedule.write_csv(f"data/daily/schedules/schedule_england_{date}.csv")
 
     # temp conversion to pandas
-    schedule = schedule.to_pandas()
+    # schedule = schedule.to_pandas()
     logger.info("Writing punctuality to file")
     punc = schedule_build.punctuality_by_lsoa(schedule)
     punc.to_csv(f"data/daily/metrics/punctuality_by_lsoa_england_{date}.csv")
