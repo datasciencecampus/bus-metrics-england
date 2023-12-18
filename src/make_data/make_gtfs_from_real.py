@@ -12,6 +12,7 @@ from src.utils.preprocessing import (
     zip_files,
     unzip_GTFS,
     convert_string_time_to_unix,
+    convert_unix_to_time_string,
     build_stops,
 )  # noqa: E501
 from src.utils.resourcing import import_file_from_naptan
@@ -165,38 +166,35 @@ class GTFS_Builder:
         # filter routes to required route_type(s)
         routes = routes.filter(pl.col("route_type").is_in(self.route_types))
 
+        # filter to today's activity plus added exceptions
+        active_services = calendar.filter(pl.col(self.weekday) == 1)[
+            "service_id"
+        ].to_list()
+        active_services.extend(exception_adds)
+        trips = trips.filter(pl.col("service_id").is_in(active_services))
+        trips = trips.join(exception_drops, on="service_id", how="anti")
+
+        # drop cancelled services
         service_stops = (
             trips.join(stop_times, on="trip_id")
             .join(stops, on="stop_id", how="left")
             .join(routes, on="route_id", how="left")
         )
 
-        # drop & add exceptions
-        calendar = calendar.join(exception_drops, on="service_id", how="anti")
-        active_services = calendar.filter(
-            pl.col(self.weekday)
-            == 1 | pl.col("service_id").is_in(exception_adds)  # noqa: E501
-        )["service_id"].to_list()
-        service_stops = service_stops.filter(
-            pl.col("service_id").is_in(active_services)
-        )
-        service_stops = service_stops.drop_nulls(subset="route_type")
+        # dropping rows with missing values attributed to
+        # route_id or route_type
+        service_stops = service_stops.drop_nulls(subset=["route_id", "route_type"])
+        # add timetable date column
         service_stops = service_stops.with_columns(
             pl.lit(self.date).alias("timetable_date")
         )
+        # drop all times beyond 24 hour clock
+        # TODO: can these be handled better?
         service_stops = service_stops.filter(
             pl.col("arrival_time").str.slice(0, 2).cast(pl.UInt32) < 24
         )
 
-        # temp convert from polars to pandas
-        service_stops = service_stops.to_pandas()
-
-        service_stops = convert_string_time_to_unix(
-            self.date, service_stops, "arrival_time", convert_type="column"
-        )  # noqa: E501
-
-        # temp convert from pandas to polars
-        service_stops = pl.from_pandas(service_stops)
+        service_stops = convert_string_time_to_unix(service_stops, "arrival_time")
 
         return service_stops
 
@@ -225,26 +223,8 @@ class GTFS_Builder:
             right_on=["trip_id", "current_stop"],
         )
 
-        # temp convert from polars to pandas
-        tt_rt_merged = tt_rt_merged.to_pandas()
-
         # convert unix time to string
-        # NB this assumes conversion to GMT at the moment!
-        # tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
-        #     tt_rt_merged["time_transpond"], unit="s"
-        # ).dt.strftime("%H:%M:%S")
-
-        tt_rt_merged["dt_time_transpond"] = pd.to_datetime(
-            tt_rt_merged["time_transpond"], unit="s"
-        )
-        tt_rt_merged["dt_time_transpond"] = (
-            tt_rt_merged["dt_time_transpond"]
-            .apply(lambda x: x.tz_localize("UTC").tz_convert("Europe/London"))
-            .dt.strftime("%H:%M:%S")
-        )
-
-        # temp convert from pandas to polars
-        tt_rt_merged = pl.from_pandas(tt_rt_merged)
+        tt_rt_merged = convert_unix_to_time_string(tt_rt_merged, "time_transpond")
 
         # recreate tt with ACTUAL times injected
         gtfs_temp = tt.join(

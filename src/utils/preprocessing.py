@@ -125,39 +125,101 @@ def unzip_GTFS(
 
 
 def convert_string_time_to_unix(
-    date, df=None, string_column=None, convert_type="single"
+    date, df=None, string_column=None, convert_type="column"
 ):
     """Add additional column: UNIX representation of timetable time formats"""
 
     if convert_type == "single":
-        timestamp = (
-            pd.to_datetime(
-                str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
-            )  # noqa:E501
-            .tz_localize("Europe/London")
-            .tz_convert("UTC")
-        )
-        timestamp = (
-            timestamp - pd.Timestamp("1970-01-01", tz="UTC")
-        ) // pd.Timedelta(  # noqa:E501
-            "1s"
-        )  # noqa: E501
+        # timestamp = (
+        #     pd.to_datetime(
+        #         str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+        #     )  # noqa:E501
+        #     .tz_localize("Europe/London")
+        #     .tz_convert("UTC")
+        # )
+        # timestamp = (
+        #     timestamp - pd.Timestamp("1970-01-01", tz="UTC")
+        # ) // pd.Timedelta(  # noqa:E501
+        #     "1s"
+        # )  # noqa: E501
 
-        return timestamp
+        # return timestamp
+        None
 
     elif convert_type == "column":
-        df["unix_arrival_time"] = pd.to_datetime(
-            str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
+        # TODO: refactor into one
+        df = df.with_columns(
+            pl.format("{} {}", "timetable_date", "arrival_time").alias(
+                "unix_arrival_time"
+            )
         )
-        df["unix_arrival_time"] = df["unix_arrival_time"].apply(
-            lambda x: x.tz_localize("Europe/London").tz_convert("UTC")
+        df = df.with_columns(
+            pl.col("unix_arrival_time").str.to_datetime("%Y%m%d %H:%M:%S")
         )
-        df["unix_arrival_time"] = (
-            df["unix_arrival_time"] - pd.Timestamp("1970-01-01", tz="UTC")
-        ) // pd.Timedelta(
-            "1s"
-        )  # noqa: E501
+        df = df.with_columns(
+            pl.col("unix_arrival_time")
+            .cast(pl.Datetime)
+            .dt.replace_time_zone("Europe/London")
+        )
+        df = df.with_columns(pl.col("unix_arrival_time").dt.convert_time_zone("UTC"))
+        df = df.with_columns(pl.col("unix_arrival_time").dt.epoch(time_unit="s"))
+
         return df
+
+
+def convert_SINGLE_datetime_to_unix(date=None):
+    timestamp = (
+        pd.to_datetime(
+            str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+        )  # noqa:E501
+        .tz_localize("Europe/London")
+        .tz_convert("UTC")
+    )
+    timestamp = (
+        timestamp - pd.Timestamp("1970-01-01", tz="UTC")
+    ) // pd.Timedelta(  # noqa:E501
+        "1s"
+    )  # noqa: E501
+
+    return timestamp
+
+
+def convert_string_time_to_unix(df=None, time_column=None):
+    """Add additional column: unix timestamps to date string"""
+
+    # TODO: refactor into one
+    df = df.with_columns(
+        pl.format("{} {}", "timetable_date", time_column).alias(f"unix_{time_column}")
+    )
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}").str.to_datetime("%Y%m%d %H:%M:%S")
+    )
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}")
+        .cast(pl.Datetime)
+        .dt.replace_time_zone("Europe/London")
+    )
+    df = df.with_columns(pl.col(f"unix_{time_column}").dt.convert_time_zone("UTC"))
+    df = df.with_columns(pl.col(f"unix_{time_column}").dt.epoch(time_unit="s"))
+
+    return df
+
+
+def convert_unix_to_time_string(df=None, unix_column=None):
+    """Converts column of unix timestamps to time string
+    e.g. 1698998880 -> 08:08:00"""
+    df = df.with_columns(
+        pl.from_epoch(pl.col(unix_column), time_unit="s").alias(f"dt_{unix_column}")
+    )
+    df = df.with_columns(
+        pl.col(f"dt_{unix_column}").cast(pl.Datetime).dt.replace_time_zone("UTC")
+    )
+    df = df.with_columns(
+        pl.col(f"dt_{unix_column}").dt.convert_time_zone("Europe/London")
+    )
+    df = df.with_columns(pl.col(f"dt_{unix_column}").cast(pl.Time))
+
+    return df
 
 
 def build_daily_stops_file(date):
