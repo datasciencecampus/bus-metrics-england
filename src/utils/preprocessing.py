@@ -68,7 +68,7 @@ def unzip_GTFS(
 
     zip_path (str): Path to dir where .zip file is located.
 
-    file_name_pattern (str): suffix of file to unzip,
+    file_name_pattern (str): OPTIONAL suffix of file to unzip,
             defaults 'timetable.zip'.
 
     logger: OPTIONAL logger object used to collect info of process.
