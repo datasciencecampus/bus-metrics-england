@@ -49,7 +49,9 @@ def zip_files(to_dir, zip_name):
     with zipfile.ZipFile(f"{zip_file}", "w", zipfile.ZIP_DEFLATED) as archive:
         for txt_file in txt_files:
             # Add each .txt file to the zip
-            archive.write(f"{to_dir}/{txt_file}", arcname=txt_file)  # noqa: E501
+            archive.write(
+                f"{to_dir}/{txt_file}", arcname=txt_file
+            )  # noqa: E501
 
     return None
 
@@ -124,49 +126,6 @@ def unzip_GTFS(
             zip_ref.extractall(txt_path)
 
 
-def convert_string_time_to_unix(
-    date, df=None, string_column=None, convert_type="column"
-):
-    """Add additional column: UNIX representation of timetable time formats"""
-
-    if convert_type == "single":
-        # timestamp = (
-        #     pd.to_datetime(
-        #         str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
-        #     )  # noqa:E501
-        #     .tz_localize("Europe/London")
-        #     .tz_convert("UTC")
-        # )
-        # timestamp = (
-        #     timestamp - pd.Timestamp("1970-01-01", tz="UTC")
-        # ) // pd.Timedelta(  # noqa:E501
-        #     "1s"
-        # )  # noqa: E501
-
-        # return timestamp
-        None
-
-    elif convert_type == "column":
-        # TODO: refactor into one
-        df = df.with_columns(
-            pl.format("{} {}", "timetable_date", "arrival_time").alias(
-                "unix_arrival_time"
-            )
-        )
-        df = df.with_columns(
-            pl.col("unix_arrival_time").str.to_datetime("%Y%m%d %H:%M:%S")
-        )
-        df = df.with_columns(
-            pl.col("unix_arrival_time")
-            .cast(pl.Datetime)
-            .dt.replace_time_zone("Europe/London")
-        )
-        df = df.with_columns(pl.col("unix_arrival_time").dt.convert_time_zone("UTC"))
-        df = df.with_columns(pl.col("unix_arrival_time").dt.epoch(time_unit="s"))
-
-        return df
-
-
 def convert_SINGLE_datetime_to_unix(date=None):
     timestamp = (
         pd.to_datetime(
@@ -189,7 +148,9 @@ def convert_string_time_to_unix(df=None, time_column=None):
 
     # TODO: refactor into one
     df = df.with_columns(
-        pl.format("{} {}", "timetable_date", time_column).alias(f"unix_{time_column}")
+        pl.format("{} {}", "timetable_date", time_column).alias(
+            f"unix_{time_column}"
+        )
     )
     df = df.with_columns(
         pl.col(f"unix_{time_column}").str.to_datetime("%Y%m%d %H:%M:%S")
@@ -199,7 +160,9 @@ def convert_string_time_to_unix(df=None, time_column=None):
         .cast(pl.Datetime)
         .dt.replace_time_zone("Europe/London")
     )
-    df = df.with_columns(pl.col(f"unix_{time_column}").dt.convert_time_zone("UTC"))
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}").dt.convert_time_zone("UTC")
+    )
     df = df.with_columns(pl.col(f"unix_{time_column}").dt.epoch(time_unit="s"))
 
     return df
@@ -209,10 +172,14 @@ def convert_unix_to_time_string(df=None, unix_column=None):
     """Converts column of unix timestamps to time string
     e.g. 1698998880 -> 08:08:00"""
     df = df.with_columns(
-        pl.from_epoch(pl.col(unix_column), time_unit="s").alias(f"dt_{unix_column}")
+        pl.from_epoch(pl.col(unix_column), time_unit="s").alias(
+            f"dt_{unix_column}"
+        )
     )
     df = df.with_columns(
-        pl.col(f"dt_{unix_column}").cast(pl.Datetime).dt.replace_time_zone("UTC")
+        pl.col(f"dt_{unix_column}")
+        .cast(pl.Datetime)
+        .dt.replace_time_zone("UTC")
     )
     df = df.with_columns(
         pl.col(f"dt_{unix_column}").dt.convert_time_zone("Europe/London")
@@ -280,5 +247,7 @@ def apply_geography_label(
     df = df.set_crs("4326")
 
     df_labelled = df.sjoin(bounds, how="left", predicate="within")
+    # remove geometry to avoid polars conflict (pyarrow numpy issue)
+    df_labelled = df_labelled.drop(columns="geometry")
 
     return df_labelled

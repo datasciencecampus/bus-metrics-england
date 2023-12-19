@@ -7,12 +7,10 @@ from src.utils.call_data_from_bucket import ingest_file_from_gcp
 from src.utils.preprocessing import (
     apply_geography_label,
     convert_SINGLE_datetime_to_unix,
-)  # noqa: E501
+)
 from src.utils.resourcing import ingest_data_from_geoportal
-import pandas as pd
 import polars as pl
 import geopandas as gpd
-import numpy as np
 
 
 class Schedule_Builder:
@@ -71,25 +69,22 @@ class Schedule_Builder:
 
     def build_timetable(
         self, stops: pl.DataFrame, region: str
-    ) -> pl.DataFrame:  # noqa: E501
+    ) -> pl.DataFrame:
         """Processes timetable for given region and day, slicing to
         specified time frame and applying unique identifier to
         each service stop"""
 
         df = self.gtfs.load_raw_timetable_data(stops, region)
-
         # slicing timetable with 30 minute buffers either side of
         # realtime window
         datestamp = convert_SINGLE_datetime_to_unix(date=self.date)
         tt_time_from = int(datestamp + (self.time_from * 60 * 60) - 1800)
         tt_time_to = int(datestamp + (self.time_to * 60 * 60) + 1800)
-
         if self.partial_timetable:
             df = df.with_columns(
                 (pl.col("unix_arrival_time") >= tt_time_from)
                 & (pl.col("unix_arrival_time") < tt_time_to)
             )
-
         df = df.with_columns(
             pl.concat_str(
                 [
@@ -111,13 +106,11 @@ class Schedule_Builder:
 
         if region is None:
             region = self.rt_region
-
         df = self.gtfs.load_raw_realtime_data(region)
         df, unlabelled = self.gtfs.split_realtime_data(df)
         df = df.sort(
             ["trip_id", "current_stop", "time_transpond", "time_ingest"]
-        )  # noqa: E501
-
+        )
         df = df.with_columns(
             pl.concat_str(
                 [
@@ -133,24 +126,30 @@ class Schedule_Builder:
 
         return df, unlabelled
 
-    # TODO: refactor to polars
-    def punctuality_by_lsoa(self, df: pd.DataFrame) -> pd.DataFrame:
+    def punctuality_by_lsoa(self, df: pl.DataFrame) -> pl.DataFrame:
         """Applies punctuality and punctuality flag to
         RT/TT combined schedule"""
-        df["relative_punctuality"] = (
-            df["unix_arrival_time"] - df["time_transpond"]
-        )  # noqa: E501
-        df["punctual"] = np.where(
-            (df["relative_punctuality"] > -300)
-            & (df["relative_punctuality"] < 60),  # noqa: E501
-            1,
-            0,
+
+        df = df.with_columns(
+            (pl.col("unix_arrival_time") - pl.col("time_transpond")).alias(
+                "relative_punctuality"
+            )
         )
-        df = (
-            df.groupby("LSOA21CD")["punctual"]
-            .agg(["count", "mean"])
-            .reset_index()  # noqa: E501
-        )  # noqa: E501
+        df = df.with_columns(
+            pl.when(
+                (pl.col("relative_punctuality") > -300)
+                | (pl.col("relative_punctuality") < 60)
+            )
+            .then(1)
+            .otherwise(0)
+            .alias("punctual")
+        )
+        df = df.group_by("LSOA21CD").agg(
+            [
+                pl.count("punctual").alias("num_service_stops"),
+                pl.mean("punctual").alias("avg_punctuality"),
+            ]
+        )
 
         return df
 
@@ -158,7 +157,7 @@ class Schedule_Builder:
 if __name__ == "__main__":
     # define session_id that will be used for log file and feedback
     session_name = (
-        f"schedule_builder_{format(datetime.now(), '%Y_%m_%d_%H:%M')}"  # noqa: E501
+        f"schedule_builder_{format(datetime.now(), '%Y_%m_%d_%H:%M')}"
     )
     logger = logging.getLogger(__name__)
     log_fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -174,7 +173,7 @@ if __name__ == "__main__":
     gtfs_build = GTFS_Builder(**config["generic"], **config["data_ingest"])
     schedule_build = Schedule_Builder(
         **config["generic"], **config["schedules"]
-    )  # noqa: E501
+    )
     date = config["generic"]["date"]
     boundaries_endpoints = config["setup"]["boundaries_endpoints"]
     boundaries = config["schedules"]["boundaries"]
@@ -231,34 +230,28 @@ if __name__ == "__main__":
         ingest_data_from_geoportal(
             boundaries_endpoints[boundaries],
             query_params,
-            filename=boundary_filename,  # noqa: E501
+            filename=boundary_filename,
         )
 
     logger.info("Loading boundary data to memory")
     bounds = gpd.read_file(boundary_filename)
     # England LSOAs only
     bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
+    bounds_lookup = bounds[["LSOA21CD", "LSOA21NM"]]
+    bounds_lookup = pl.from_pandas(bounds_lookup)
     logger.info("Diagnostics: timetable coverage by LSOA")
     # illustrative output of timetabled service stops by LSOA
 
     # TODO: can boundaries geojson be loaded to polars?
-    # tt_lsoa_coverage = bounds[["LSOA21CD", "LSOA21NM"]].join(
-    #     (tt.group_by("LSOA21CD").count()),
-    #     on="LSOA21CD",
-    #     how="left",
-    # )
-
-    tt = tt.to_pandas()
-    tt_lsoa_coverage = pd.DataFrame(
-        tt["LSOA21CD"].value_counts()
-    ).reset_index()  # noqa: E501
-    tt_lsoa_coverage = pd.merge(
-        bounds[["LSOA21CD", "LSOA21NM"]],
-        tt_lsoa_coverage,
+    tt_lsoa_coverage = bounds_lookup.join(
+        (tt.group_by("LSOA21CD").count()),
         on="LSOA21CD",
-        how="left",  # noqa: E501
+        how="left",
     )
-    tt_lsoa_coverage.to_csv(f"data/daily/metrics/tt_lsoa_coverage_{date}.csv")
+
+    tt_lsoa_coverage.write_csv(
+        f"data/daily/metrics/tt_lsoa_coverage_{date}.csv"
+    )
 
     logger.info("Loading and building from raw realtime data")
     trigger = 0
@@ -267,7 +260,7 @@ if __name__ == "__main__":
         rti, rti_u = schedule_build.build_realtime(region=region)
         rti = rti.select(
             ["UID", "time_transpond", "bus_id", "latitude", "longitude"]
-        )  # noqa: E501
+        )
         if trigger == 0:
             rt = rti.clone()
             rt_u = rti_u.clone()
@@ -280,88 +273,65 @@ if __name__ == "__main__":
     rt = rt.to_pandas()
     rt_u = rt_u.to_pandas()
 
-    logger.info("Diagnostics: realtime coverage by LSOA")
+    logger.info("Applying geography labels to realtime (labelled) data")
     rt = apply_geography_label(rt, bounds, type="realtime")
-    rt = rt.reset_index(drop=True)
-    # illustrative output of realtime service stops by LSOA
-    rt_lsoa_coverage = pd.DataFrame(
-        rt["LSOA21CD"].value_counts()
-    ).reset_index()  # noqa: E501
-    rt_lsoa_coverage = pd.merge(
-        bounds[["LSOA21CD", "LSOA21NM"]],
-        rt_lsoa_coverage,
+
+    # temp conversion back to polars
+    rt = pl.from_pandas(rt)
+
+    logger.info("Diagnostics: realtime coverage by LSOA")
+    rt_lsoa_coverage = bounds_lookup.join(
+        (rt.group_by("LSOA21CD").count()),
         on="LSOA21CD",
-        how="left",  # noqa: E501
+        how="left",
     )
-    rt_lsoa_coverage.to_csv(f"data/daily/metrics/rt_lsoa_coverage_{date}.csv")
 
-    # temp bypass unlabelled processing
+    logger.info("Writing realtime (labelled) coverage to file")
+    rt_lsoa_coverage.write_csv(
+        f"data/daily/metrics/rt_lsoa_coverage_{date}.csv"
+    )
+
     if config["schedules"]["output_unlabelled_bulk"]:
-        logger.info("Diagnostics: UNLABELLED realtime coverage by LSOA")
-
+        # temp bypass unlabelled processing
         # illustrative output of unlabelled RT rows by LSOA
+        logger.info("Applying geography labels to realtime (UNLABELLED) data")
         rt_u = apply_geography_label(rt_u, bounds, type="realtime")
-        rt_u = rt_u.reset_index(drop=True)
-        if config["schedules"]["output_unlabelled_bulk"]:
-            logger.info("Exporting unlabelled RT data to file")
-            rt_u.to_csv("data/daily/unlabelled_rt.csv")
-        else:
-            logger.info("Unlabelled data export bypassed by user")
-        rt_u_lsoa_coverage = pd.DataFrame(
-            rt_u["LSOA21CD"].value_counts()
-        ).reset_index()  # noqa: E501
-        rt_u_lsoa_coverage = pd.merge(
-            bounds[["LSOA21CD", "LSOA21NM"]],
-            rt_u_lsoa_coverage,
+
+        # temp conversion back to polars
+        rt_u = pl.from_pandas(rt_u)
+
+        logger.info("Exporting unlabelled RT data to file")
+        rt_u.write_csv("data/daily/unlabelled_rt.csv")
+
+        logger.info("Diagnostics: realtime (UNLABELLED) coverage by LSOA")
+        rt_u_lsoa_coverage = bounds_lookup.join(
+            (rt_u.group_by("LSOA21CD").count()),
             on="LSOA21CD",
-            how="left",  # noqa: E501
+            how="left",
         )
-        rt_u_lsoa_coverage.to_csv(
+
+        logger.info("Writing realtime (UNLABELLED) coverage to file")
+        rt_u_lsoa_coverage.write_csv(
             f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
-        )  # noqa: E501
-    # rt_u = pl.from_pandas(rt_u)
-
-    # if config["schedules"]["output_unlabelled_bulk"]:
-    #     logger.info("Exporting unlabelled RT data to file")
-    #     rt_u.write_csv("data/daily/unlabelled_rt.csv")
-    # else:
-    #     logger.info("Unlabelled data export bypassed by user")
-
-    # rt_u_lsoa_coverage = rt_u.groupby(pl.col("LSOA21CD")).agg(pl.count())
-    # rt_u_lsoa_coverage = rt_u_lsoa_coverage.join(
-    #     bounds[["LSOA21CD", "LSOA21NM"]], on="LSOA21CD", how="right"
-    # )
-
-    # rt_u_lsoa_coverage.write_csv(
-    #     f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
-    # )  # noqa: E501
-
-    # logger.info("Writing schedule to file")
-    # # only service stops common in RT and TT
-    # schedule = pd.merge(
-    #     rt[["UID", "time_transpond", "bus_id"]], tt, on="UID", how="inner"
-    # )
-    # schedule = schedule.drop_duplicates()  # TODO: check if req'd
-    # schedule.to_csv(f"data/daily/schedules/schedule_england_{date}.csv")
-
-    rt = pl.from_pandas(pd.DataFrame(rt))
-    tt = pl.from_pandas(tt)
+        )
+    else:
+        logger.info("Unlabelled data export and analysis bypassed by user")
 
     logger.info("Writing schedule to file")
     # only service stops common in RT and TT
     schedule = (
         rt[["UID", "time_transpond", "bus_id"]]
         .join(tt, on="UID", how="inner")
-        .unique()  # noqa: E501
+        .unique()
     )
 
     schedule.write_csv(f"data/daily/schedules/schedule_england_{date}.csv")
 
-    # temp conversion to pandas
-    schedule = schedule.to_pandas()
     logger.info("Writing punctuality to file")
     punc = schedule_build.punctuality_by_lsoa(schedule)
-    punc.to_csv(f"data/daily/metrics/punctuality_by_lsoa_england_{date}.csv")
+    punc.write_csv(
+        f"data/daily/metrics/punctuality_by_lsoa_england_{date}.csv"
+    )
 
     logger.info("\n")
     logger.info("-------------------------------")
