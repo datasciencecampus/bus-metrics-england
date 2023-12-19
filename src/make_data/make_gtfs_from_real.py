@@ -4,7 +4,6 @@ import toml
 import os
 from os import listdir
 import glob
-import pandas as pd
 import polars as pl
 import shutil
 from src.utils.preprocessing import (
@@ -183,7 +182,9 @@ class GTFS_Builder:
 
         # dropping rows with missing values attributed to
         # route_id or route_type
-        service_stops = service_stops.drop_nulls(subset=["route_id", "route_type"])
+        service_stops = service_stops.drop_nulls(
+            subset=["route_id", "route_type"]
+        )
         # add timetable date column
         service_stops = service_stops.with_columns(
             pl.lit(self.date).alias("timetable_date")
@@ -194,7 +195,9 @@ class GTFS_Builder:
             pl.col("arrival_time").str.slice(0, 2).cast(pl.UInt32) < 24
         )
 
-        service_stops = convert_string_time_to_unix(service_stops, "arrival_time")
+        service_stops = convert_string_time_to_unix(
+            service_stops, "arrival_time"
+        )
 
         return service_stops
 
@@ -224,7 +227,9 @@ class GTFS_Builder:
         )
 
         # convert unix time to string
-        tt_rt_merged = convert_unix_to_time_string(tt_rt_merged, "time_transpond")
+        tt_rt_merged = convert_unix_to_time_string(
+            tt_rt_merged, "time_transpond"
+        )
 
         # recreate tt with ACTUAL times injected
         gtfs_temp = tt.join(
@@ -329,7 +334,9 @@ class GTFS_Builder:
             f"{from_dir}/shapes.txt",
             f"{to_dir}/shapes.txt",  # noqa: E501
         )
-        shutil.copy(f"{from_dir}/stops.txt", f"{to_dir}/stops.txt")  # noqa: E501
+        shutil.copy(
+            f"{from_dir}/stops.txt", f"{to_dir}/stops.txt"
+        )  # noqa: E501
 
         if self.zip_gtfs:
             zip_name = f"{self.tt_region}_{self.date}_realtimegtfs.zip"
