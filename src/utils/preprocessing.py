@@ -68,7 +68,7 @@ def unzip_GTFS(
 
     zip_path (str): Path to dir where .zip file is located.
 
-    file_name_pattern (str): OPTIONAL suffix of file to unzip,
+    file_name_pattern (str): suffix of file to unzip,
             defaults 'timetable.zip'.
 
     logger: OPTIONAL logger object used to collect info of process.
@@ -113,7 +113,8 @@ def unzip_GTFS(
 
         # check there is not more than 1 zip file
         if len(matching_zip) > 1:
-            logger.info(f"More than 1 {file_name_pattern} in {zip_path}")
+            if logger:
+                logger.info(f"More than 1 {file_name_pattern} in {zip_path}")
             raise ValueError("More than 1 file_name_pattern in zip_path")
 
         # Unzips contents of zip to txt path
