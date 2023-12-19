@@ -81,7 +81,7 @@ class Schedule_Builder:
         tt_time_from = int(datestamp + (self.time_from * 60 * 60) - 1800)
         tt_time_to = int(datestamp + (self.time_to * 60 * 60) + 1800)
         if self.partial_timetable:
-            df = df.with_columns(
+            df = df.filter(
                 (pl.col("unix_arrival_time") >= tt_time_from)
                 & (pl.col("unix_arrival_time") < tt_time_to)
             )
@@ -138,7 +138,7 @@ class Schedule_Builder:
         df = df.with_columns(
             pl.when(
                 (pl.col("relative_punctuality") > -300)
-                | (pl.col("relative_punctuality") < 60)
+                & (pl.col("relative_punctuality") < 60)
             )
             .then(1)
             .otherwise(0)
