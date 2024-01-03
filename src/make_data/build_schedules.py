@@ -5,6 +5,7 @@ import os
 from src.make_data.make_gtfs_from_real import GTFS_Builder
 from src.utils.call_data_from_bucket import ingest_file_from_gcp
 from src.utils.preprocessing import (
+    build_stops,
     apply_geography_label,
     convert_SINGLE_datetime_to_unix,
 )
@@ -195,8 +196,25 @@ if __name__ == "__main__":
             download_type="realtime",
         )
 
+    boundary_filename = f"data/resources/{boundaries}"
+    if not os.path.exists(boundary_filename):
+        logger.info("Ingesting boundary data from ONS geoportal")
+        ingest_data_from_geoportal(
+            boundaries_endpoints[boundaries],
+            query_params,
+            filename=boundary_filename,
+        )
+
+    logger.info("Loading boundary data to memory")
+    bounds = gpd.read_file(boundary_filename)
+    # England LSOAs only
+    bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
+    bounds_lookup = bounds[["LSOA21CD", "LSOA21NM"]]
+    bounds_lookup = pl.from_pandas(bounds_lookup)
+
     logger.info("Loading NAPTAN-geography lookup table")
-    stops = pl.read_csv("data/daily/gb_stops_labelled.csv")
+    stops = build_stops(output="pandas")
+    stops = apply_geography_label(stops, bounds)
 
     logger.info("Loading and building from raw timetable data")
     tt_cols = [
@@ -224,21 +242,6 @@ if __name__ == "__main__":
             tt = pl.concat([tt, tti], how="vertical_relaxed")
         trigger += 1
 
-    boundary_filename = f"data/{boundaries}"
-    if not os.path.exists(boundary_filename):
-        logger.info("Ingesting boundary data from ONS geoportal")
-        ingest_data_from_geoportal(
-            boundaries_endpoints[boundaries],
-            query_params,
-            filename=boundary_filename,
-        )
-
-    logger.info("Loading boundary data to memory")
-    bounds = gpd.read_file(boundary_filename)
-    # England LSOAs only
-    bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
-    bounds_lookup = bounds[["LSOA21CD", "LSOA21NM"]]
-    bounds_lookup = pl.from_pandas(bounds_lookup)
     logger.info("Diagnostics: timetable coverage by LSOA")
     # illustrative output of timetabled service stops by LSOA
 
@@ -275,9 +278,6 @@ if __name__ == "__main__":
 
     logger.info("Applying geography labels to realtime (labelled) data")
     rt = apply_geography_label(rt, bounds, type="realtime")
-
-    # temp conversion back to polars
-    rt = pl.from_pandas(rt)
 
     logger.info("Diagnostics: realtime coverage by LSOA")
     rt_lsoa_coverage = bounds_lookup.join(

@@ -157,7 +157,7 @@ def convert_string_time_to_unix(df=None, time_column=None):
     )
     df = df.with_columns(
         pl.col(f"unix_{time_column}")
-        .cast(pl.Datetime)
+        #        .cast(pl.Datetime)
         .dt.replace_time_zone("Europe/London")
     )
     df = df.with_columns(
@@ -212,7 +212,7 @@ def build_daily_stops_file(date):
     return df
 
 
-def build_stops() -> pl.DataFrame:
+def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
     # import NapTAN data
 
     stops = pl.read_csv(
@@ -220,6 +220,7 @@ def build_stops() -> pl.DataFrame:
         ignore_errors=True,
         dtypes={"stop_id": pl.Utf8},  # noqa: E501
     )
+    stops = stops.filter(pl.col("Status") == "active")
     eastings = stops["Easting"].to_list()
     northings = stops["Northing"].to_list()
     lon, lat = convert_lonlat(eastings, northings)
@@ -229,12 +230,19 @@ def build_stops() -> pl.DataFrame:
     stops.with_columns(pl.Series(name="Longitude", values=lon))
     stops = stops[["ATCOCode", "Latitude", "Longitude"]]
     stops.columns = ["stop_id", "stop_lat", "stop_lon"]
+
+    if output == "pandas":
+        stops = stops.to_pandas()
+
     return stops
 
 
 def apply_geography_label(
-    df: pd.DataFrame, bounds: gpd.GeoDataFrame, type: str = "timetable"
-) -> gpd.GeoDataFrame:
+    df: pd.DataFrame,
+    bounds: gpd.GeoDataFrame,
+    type: str = "timetable",
+    output: str = "polars",
+) -> pl.DataFrame | pd.DataFrame:
     if type == "timetable":
         lat = "stop_lat"
         lon = "stop_lon"
@@ -249,5 +257,10 @@ def apply_geography_label(
     df_labelled = df.sjoin(bounds, how="left", predicate="within")
     # remove geometry to avoid polars conflict (pyarrow numpy issue)
     df_labelled = df_labelled.drop(columns="geometry")
+
+    if output == "pandas":
+        df_labelled = pd.DataFrame(df_labelled)
+    else:
+        df_labelled = pl.from_pandas(pd.DataFrame(df_labelled))
 
     return df_labelled

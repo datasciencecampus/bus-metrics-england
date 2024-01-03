@@ -7,7 +7,6 @@ import glob
 import polars as pl
 import shutil
 from src.utils.preprocessing import (
-    deduplicate,
     zip_files,
     unzip_GTFS,
     convert_string_time_to_unix,
@@ -232,13 +231,24 @@ class GTFS_Builder:
         )
 
         # recreate tt with ACTUAL times injected
+        tt = tt.select(
+            pl.exclude(
+                "timetable_date",
+                "unix_arrival_time",
+                "arrival_time",
+                "departure_time",
+            )
+        )
         gtfs_temp = tt.join(
             tt_rt_merged[["trip_id", "stop_sequence", "dt_time_transpond"]],
             on=["trip_id", "stop_sequence"],
         )
 
+        gtfs_temp = gtfs_temp.drop(["arrival_time", "departure_time"])
         gtfs_temp = gtfs_temp.rename({"dt_time_transpond": "arrival_time"})
-        gtfs_temp["departure_time"] = gtfs_temp["arrival_time"]
+        gtfs_temp = gtfs_temp.with_columns(
+            [pl.col("arrival_time").alias("departure_time")]
+        )
         gtfs_temp = gtfs_temp.sort(["trip_id", "stop_sequence"])
 
         return gtfs_temp
@@ -267,7 +277,8 @@ class GTFS_Builder:
                 "block_id",
                 "shape_id",
                 "wheelchair_accessible",
-                "trip_direction_name",
+                # TODO: add to trips if column missing
+                # "trip_direction_name",
                 "vehicle_journey_code",
             ]
         ].unique().write_csv(f"{to_dir}/trips.txt")
@@ -285,7 +296,8 @@ class GTFS_Builder:
                 "drop_off_type",
                 "shape_dist_traveled",
                 "timepoint",
-                "stop_direction_name",
+                # TODO: add to stop_times if column missing
+                # "stop_direction_name",
             ]
         ].unique().write_csv(f"{to_dir}/stop_times.txt")
 
@@ -314,10 +326,12 @@ class GTFS_Builder:
         cal_dates.write_csv(f"{to_dir}/calendar_dates.txt")
 
         calendar = pl.read_csv(f"{from_dir}/calendar.txt", ignore_errors=True)
-        calendar = gtfs_temp["service_id"].join(
-            calendar, on="service_id", how="left"
-        )  # noqa: E501
-        calendar[["start_date", "end_date"]] = self.date
+        calendar = calendar.filter(
+            pl.col("service_id").is_in(gtfs_temp["service_id"])
+        )
+        calendar = calendar.with_columns(
+            start_date=pl.lit(self.date), end_date=pl.lit(self.date)
+        )
 
         calendar.unique().write_csv(f"{to_dir}/calendar.txt")
 
@@ -376,15 +390,12 @@ if __name__ == "__main__":
 
     labelled_real, unlabelled_real = builder.split_realtime_data(real)
 
-    # # temp conversion to from polars to pandas
-    # labelled_real = labelled_real.to_pandas()
-    # unlabelled_real = unlabelled_real.to_pandas()
-
     logger.info(f"Raw labelled realtime data: {len(labelled_real)} rows")
     logger.info(f"Raw UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
-    labelled_real = deduplicate(labelled_real)
-    unlabelled_real = deduplicate(unlabelled_real)
+    # TODO: check whether deduplication is strictly necessary here
+    labelled_real = labelled_real.unique()
+    unlabelled_real = unlabelled_real.unique()
     logger.info(f"Dedup labelled realtime data: {len(labelled_real)} rows")
     logger.info(f"Dedup UNLABELLED realtime data: {len(unlabelled_real)} rows")
 
