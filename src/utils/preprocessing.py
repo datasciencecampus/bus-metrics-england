@@ -2,6 +2,7 @@ import zipfile
 import os
 import glob
 import pandas as pd
+import polars as pl
 import geopandas as gpd
 from convertbng.util import convert_lonlat
 
@@ -48,7 +49,9 @@ def zip_files(to_dir, zip_name):
     with zipfile.ZipFile(f"{zip_file}", "w", zipfile.ZIP_DEFLATED) as archive:
         for txt_file in txt_files:
             # Add each .txt file to the zip
-            archive.write(f"{to_dir}/{txt_file}", arcname=txt_file)  # noqa: E501
+            archive.write(
+                f"{to_dir}/{txt_file}", arcname=txt_file
+            )  # noqa: E501
 
     return None
 
@@ -124,40 +127,67 @@ def unzip_GTFS(
             zip_ref.extractall(txt_path)
 
 
-def convert_string_time_to_unix(
-    date, df=None, string_column=None, convert_type="single"
-):
-    """Add additional column: UNIX representation of timetable time formats"""
+def convert_SINGLE_datetime_to_unix(date=None):
+    timestamp = (
+        pd.to_datetime(
+            str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
+        )  # noqa:E501
+        .tz_localize("Europe/London")
+        .tz_convert("UTC")
+    )
+    timestamp = (
+        timestamp - pd.Timestamp("1970-01-01", tz="UTC")
+    ) // pd.Timedelta(  # noqa:E501
+        "1s"
+    )  # noqa: E501
 
-    if convert_type == "single":
-        timestamp = (
-            pd.to_datetime(
-                str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
-            )  # noqa:E501
-            .tz_localize("Europe/London")
-            .tz_convert("UTC")
-        )
-        timestamp = (
-            timestamp - pd.Timestamp("1970-01-01", tz="UTC")
-        ) // pd.Timedelta(  # noqa:E501
-            "1s"
-        )  # noqa: E501
+    return timestamp
 
-        return timestamp
 
-    elif convert_type == "column":
-        df["unix_arrival_time"] = pd.to_datetime(
-            str(date) + " " + df[string_column], format="%Y%m%d %H:%M:%S"
+def convert_string_time_to_unix(df=None, time_column=None):
+    """Add additional column: unix timestamps to date string"""
+
+    # TODO: refactor into one
+    df = df.with_columns(
+        pl.format("{} {}", "timetable_date", time_column).alias(
+            f"unix_{time_column}"
         )
-        df["unix_arrival_time"] = df["unix_arrival_time"].apply(
-            lambda x: x.tz_localize("Europe/London").tz_convert("UTC")
+    )
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}").str.to_datetime("%Y%m%d %H:%M:%S")
+    )
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}")
+        #        .cast(pl.Datetime)
+        .dt.replace_time_zone("Europe/London")
+    )
+    df = df.with_columns(
+        pl.col(f"unix_{time_column}").dt.convert_time_zone("UTC")
+    )
+    df = df.with_columns(pl.col(f"unix_{time_column}").dt.epoch(time_unit="s"))
+
+    return df
+
+
+def convert_unix_to_time_string(df=None, unix_column=None):
+    """Converts column of unix timestamps to time string
+    e.g. 1698998880 -> 08:08:00"""
+    df = df.with_columns(
+        pl.from_epoch(pl.col(unix_column), time_unit="s").alias(
+            f"dt_{unix_column}"
         )
-        df["unix_arrival_time"] = (
-            df["unix_arrival_time"] - pd.Timestamp("1970-01-01", tz="UTC")
-        ) // pd.Timedelta(
-            "1s"
-        )  # noqa: E501
-        return df
+    )
+    df = df.with_columns(
+        pl.col(f"dt_{unix_column}")
+        .cast(pl.Datetime)
+        .dt.replace_time_zone("UTC")
+    )
+    df = df.with_columns(
+        pl.col(f"dt_{unix_column}").dt.convert_time_zone("Europe/London")
+    )
+    df = df.with_columns(pl.col(f"dt_{unix_column}").cast(pl.Time))
+
+    return df
 
 
 def build_daily_stops_file(date):
@@ -183,29 +213,37 @@ def build_daily_stops_file(date):
     return df
 
 
-def build_stops(logger=None) -> pd.DataFrame:
+def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
     # import NapTAN data
-    stops = pd.read_csv("data/daily/gb_stops.csv")
-    stops_no_latlon = stops.loc[
-        (stops["Latitude"].isnull()) | (stops["Longitude"].isnull())
-    ]
 
-    eastings = stops_no_latlon["Easting"].to_list()
-    northings = stops_no_latlon["Northing"].to_list()
+    stops = pl.read_csv(
+        "data/daily/gb_stops.csv",
+        ignore_errors=True,
+        dtypes={"stop_id": pl.Utf8},  # noqa: E501
+    )
+    stops = stops.filter(pl.col("Status") == "active")
+    eastings = stops["Easting"].to_list()
+    northings = stops["Northing"].to_list()
     lon, lat = convert_lonlat(eastings, northings)
 
-    stops_no_latlon["Longitude"] = lon
-    stops_no_latlon["Latitude"] = lat
-
-    stops[["Longitude", "Latitude"]] = stops[["Longitude", "Latitude"]].fillna(
-        stops_no_latlon
-    )
+    # TODO: fill nan rather than overwrite whole columns
+    stops.with_columns(pl.Series(name="Latitude", values=lat))
+    stops.with_columns(pl.Series(name="Longitude", values=lon))
     stops = stops[["ATCOCode", "Latitude", "Longitude"]]
     stops.columns = ["stop_id", "stop_lat", "stop_lon"]
+
+    if output == "pandas":
+        stops = stops.to_pandas()
+
     return stops
 
 
-def apply_geography_label(df, bounds, geography="LSOA", type="timetable"):
+def apply_geography_label(
+    df: pd.DataFrame,
+    bounds: gpd.GeoDataFrame,
+    type: str = "timetable",
+    output: str = "polars",
+) -> pl.DataFrame | pd.DataFrame:
     if type == "timetable":
         lat = "stop_lat"
         lon = "stop_lon"
@@ -213,11 +251,17 @@ def apply_geography_label(df, bounds, geography="LSOA", type="timetable"):
         lat = "latitude"
         lon = "longitude"
 
-    if geography == "LSOA":
-        df["geometry"] = gpd.points_from_xy(df[lon], df[lat])  # noqa: E501
-        df = gpd.GeoDataFrame(df)
-        df = df.set_crs("4326")  # .to_crs("27700")
+    df["geometry"] = gpd.points_from_xy(df[lon], df[lat])  # noqa: E501
+    df = gpd.GeoDataFrame(df)
+    df = df.set_crs("4326")
 
-        df_labelled = df.sjoin(bounds, how="left", predicate="within")
+    df_labelled = df.sjoin(bounds, how="left", predicate="within")
+    # remove geometry to avoid polars conflict (pyarrow numpy issue)
+    df_labelled = df_labelled.drop(columns="geometry")
 
-        return df_labelled
+    if output == "pandas":
+        df_labelled = pd.DataFrame(df_labelled)
+    else:
+        df_labelled = pl.from_pandas(pd.DataFrame(df_labelled))
+
+    return df_labelled
