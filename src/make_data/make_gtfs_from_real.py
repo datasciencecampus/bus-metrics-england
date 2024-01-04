@@ -13,7 +13,10 @@ from src.utils.preprocessing import (
     convert_unix_to_time_string,
     build_stops,
 )  # noqa: E501
-from src.utils.resourcing import import_file_from_naptan
+from src.utils.resourcing import (
+    import_file_from_naptan,
+    polars_robust_load_csv,
+)
 
 
 class GTFS_Builder:
@@ -77,7 +80,10 @@ class GTFS_Builder:
         # collate all realtime ingests to single dataframe
         tables = os.path.join(dir, "*.csv")
         tables = glob.glob(tables)
-        df_list = (pl.read_csv(table, ignore_errors=True) for table in tables)
+        df_list = (
+            polars_robust_load_csv(table, dtypes={"route_id": pl.Utf8})
+            for table in tables
+        )
         df = pl.concat(df_list)
 
         return df
