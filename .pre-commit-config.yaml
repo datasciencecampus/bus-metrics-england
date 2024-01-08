@@ -20,4 +20,61 @@ repos:
     rev: v1.4.0
     hooks:
     -   id: detect-secrets
-        exclude: package.lock.json
+        exclude: .*/tests/.*|^\.cruft\.json$|.*ipynb # detect secrets flags interpreter hashes in the ipynb JSON files
+
+# ----- nbstripout - remove content from notebooks
+- repo: https://github.com/kynan/nbstripout
+  rev: 0.4.0
+  hooks:
+    - id: nbstripout
+      name: nbstripout - Strip outputs from notebooks (auto-fixes)
+      args:
+        - --extra-keys
+        - "metadata.colab metadata.kernelspec cell.metadata.colab cell.metadata.executionInfo cell.metadata.id cell.metadata.outputId"
+
+# ----- black - code formatting
+- repo: https://github.com/psf/black
+  rev: 22.3.0 # Replace by any tag/version: https://github.com/psf/black/tags
+  hooks:
+    - id: black
+      args: [--line-length=79]
+      additional_dependencies: ['click==8.1.0'] # here
+      name: black - consistent Python code formatting (auto-fixes)
+      language_version: python # Should be a command that runs python3.6+
+
+# ----- flake8 - python linting
+- repo: https://github.com/pycqa/flake8
+  rev: 3.9.2
+  hooks:
+    - id: flake8
+      name: flake8 - Python linting
+
+# ----- isort - imports sorting
+- repo: https://github.com/pycqa/isort
+  rev: 5.12.0
+  hooks:
+    - id: isort
+      name: isort - Sort Python imports (auto-fixes)
+      types: [ cython, pyi, python ]
+      args: [ "--profile", "black", "--filter-files" ]
+
+# ----- nbQA - notebook quality assuring
+- repo: https://github.com/nbQA-dev/nbQA
+  rev: 0.12.0
+  hooks:
+    - id: nbqa-isort
+      name: nbqa-isort - Sort Python imports (notebooks; auto-fixes)
+      args: [ --nbqa-mutate ]
+      additional_dependencies: [ isort==5.12.0 ]
+    - id: nbqa-black
+      name: nbqa-black - consistent Python code formatting (notebooks; auto-fixes)
+      args: [ --nbqa-mutate ]
+      additional_dependencies: [ black==22.3.0 ]
+
+# ----- pydocstyle - ensure consistency of docstrings
+- repo: https://github.com/pycqa/pydocstyle
+  rev: 6.1.1
+  hooks:
+    - id: pydocstyle
+      args:
+      - --ignore=D107,D203,D204,D213
