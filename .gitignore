@@ -1,6 +1,8 @@
 ### Project structure ###
-data/*
-outputs/*
+!data/realtime/.gitkeep
+!data/resources/.gitkeep
+!data/timetable/.gitkeep
+!outputs/.gitkeep
 .vscode
 
 ### Contentious file types (can be removed at user discretion) ###
@@ -19,6 +21,7 @@ outputs/*
 *.rda
 *.parquet
 *.arrow
+*.geojson
 
 # Office files
 *.doc
