@@ -1,13 +1,19 @@
+<!--- Badges start --->
+<img src="https://img.shields.io/badge/repo%20status-in%20development%20(caution)-red" alt="Repository status is still in development (caution required)"/>
+<!--- Badges end --->
+
 <img src="https://github.com/datasciencecampus/awesome-campus/blob/master/ons_dsc_logo.png">
 
-# Repository name
+# bus-metrics-england
+
+> :warning: This repository is still in the development phase. Caution should be taken before using or referencing this work in any way - use it at your own risk.
 
 # Introduction
 ## About
-*Describe what this repo contains and what the project is.*
+This repo aims to provide other developers with tools to interrogate bus services in England by combining realtime (from the Bus Open Data Service) and timetable data (from Department for Transport). We aim to build flexibility for analysis at different geography levels and across a range of metrics, including service coverage, punctuality and quality of service (e.g. excess wait time).
 
 ## Installation
-*Describe technical set-up. Such as the required dependencies.*
+Further information will follow...
 
 ### Pre-commit actions
 This repository contains a configuration of pre-commit hooks. These are language agnostic and focussed on repository security (such as detection of passwords and API keys). If approaching this project as a developer, you are encouraged to install and enable `pre-commits` by running the following in your shell:
@@ -26,16 +32,23 @@ Once pre-commits are activated, whenever you commit to this repository a series 
 **NOTE:** Pre-commit hooks execute Python, so it expects a working Python build.
 
 ## Usage
-*Explain how to use the things in the repo.*
+Further information will follow...
 
 ### Workflow
-*You may wish to consider generating a graph to show your project workflow. GitHub markdown provides native support for [mermaid](https://mermaid.js.org/syntax/flowchart.html), an example of which is provided below:*
+Further information will follow but this is an early outline of the intended workflow for this project.
 
 ```mermaid
-flowchart TD
-   id1[(Some data)] --> id2(Some processing)
-   id3[(More data)] --> id2
-   id2 --> id4[Some output]
+flowchart LR
+   id1a([Select geography]) --> id2{Begin ingest}
+   id1b([Select required metrics]) --> id2
+   id2 ==> id3a[Ingest geography data]
+   id2 ==> id3b[Ingest NAPTAN stops data]
+   id2 ==> id3c[Ingest realtime bus data]
+   id2 ==> id3d[Ingest bus timetable data]
+   id3a & id3b & id3c & id3d --> id4{Process data}
+   id4 ==> id5a([Export metrics by geography])
+   id4 ==> id5b([Visualise metrics on England map])
+   
 ```
 
 
