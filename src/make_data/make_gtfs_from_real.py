@@ -146,14 +146,17 @@ class GTFS_Builder:
             f"{from_dir}/calendar_dates.txt", ignore_errors=True
         )
         calendar = pl.read_csv(f"{from_dir}/calendar.txt", ignore_errors=True)
-        routes = pl.read_csv(f"{from_dir}/routes.txt", ignore_errors=True)
-        stop_times = pl.read_csv(
+        routes = polars_robust_load_csv(
+            f"{from_dir}/routes.txt", dtypes={"route_id": pl.Utf8}
+        )
+        stop_times = polars_robust_load_csv(
             f"{from_dir}/stop_times.txt",
-            ignore_errors=True,
             dtypes={"stop_id": pl.Utf8},
         )
 
-        trips = pl.read_csv(f"{from_dir}/trips.txt", ignore_errors=True)
+        trips = polars_robust_load_csv(
+            f"{from_dir}/trips.txt", dtypes={"route_id": pl.Utf8}
+        )
 
         calendar_dates = calendar_dates.filter(
             pl.col("date").cast(pl.Utf8) == self.date
