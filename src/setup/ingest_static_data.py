@@ -1,54 +1,105 @@
-# %%
+"""Class to ingest project resources."""
+
 import geopandas as gpd
 import naptan
 import os
 import pandas as pd
 import requests
 import toml
-from zipfile import ZipFile
+from datetime import datetime
+
 
 class StaticDataIngest:
+    """Ingest project resource data.
+
+    Parameters
+    ----------
+    naptan_filename: str
+        Full filepath to store NAPTAN data locally
+
+    Attributes
+    ----------
+    config: dict
+        Dictionary of imported toml ingest variables
+    geography: str
+        Geography by which data is to be aggregated
+    region: str
+        Region to be analysed
+    timetable_url_prefix: str
+        Consistent URL stem
+    geoportal_query_params: dict
+        Dictionary of parameters required in ONS GeoPortal
+        API call
+
+    Methods
+    -------
+    import_stops_from_naptan
+        Ingest and store NAPTAN stops data
+    ingest_data_from_geoportal
+        Ingest and store required boundaries data
+    ingest_bus_timetable
+        Ingest and store current timetable for selected region
+
+    """
 
     def __init__(
-            self,
-            config:str = "src/setup/ingest.toml",
-            naptan_filename:str = "data/resources/gb_stops.csv",
-            geography:str = "lsoa",
-            timetable_region:str = "Yorkshire",
+        self,
+        naptan_filename: str = "data/resources/gb_stops.csv",
     ):
-        self.config = config
+        self.config = toml.load("src/setup/ingest.toml")
         self.naptan_filename = naptan_filename
-        self.geography = geography
-        self.timetable_region = timetable_region
-        self.timetable_url_prefix = toml.load(config)["timetable_url_prefix"]
-        self.geoportal_query_params = toml.load(config)["geoportal_query_params"]
-        self.boundaries = toml.load(config)["boundaries"]
+        self.geography = self.config["geography"]
+        self.region = self.config["region_to_analyse"]
+        self.timetable_url_prefix = self.config["timetable_url_prefix"]
+        self.geoportal_query_params = self.config["geoportal_query_params"]
+        self.boundaries = self.config["boundaries"]
 
-    def import_stops_from_naptan(self, filename:str = None
-                                 ) -> None:
+    def import_stops_from_naptan(self, filename: str = None) -> None:
+        """Import and store NAPTAN stops data.
+
+        Parameters
+        ----------
+        filename: str
+            Filepath to Local storage location
+
+        Raises
+        ------
+        FileExistsError
+            When NAPTAN data already exists at given filepath
+
         """
-        Imports all transport stops in Great Britain
-        from NapTAN site and writes to local file
-        Args:
-            filename(str): local storage location
-        """
+        # TODO: consider if these need to be time-stamped as they are
+        # updated by NAPTAN daily
         if filename is None:
             filename = self.naptan_filename
         if not os.path.exists(filename):
             stops = naptan.get_all_stops()
             stops.to_csv(filename)
         else:
-            raise FileExistsError("The file you are downloading to already exists")
+            raise FileExistsError(
+                "The file you are downloading to already exists (naptan)"
+            )
 
         return None
 
+    def _connect_to_endpoint(self, url: str) -> dict | Exception:
+        """Diagnose successful connection to site.
 
-    def _connect_to_endpoint(self, url: str
-                              ) -> dict|None:
-        """
-        Diagnoses successful connection to site
-        Args:
-            url(str): API endpoint
+        Parameters
+        ----------
+        url: str
+            API endpoint
+
+        Returns
+        -------
+        response: dict
+            Full response content from API call
+
+        Raises
+        ------
+        RequestException
+            Indicates bad response from API call
+
         """
         if url is None:
             url = self.boundaries[self.geography]["url"]
@@ -62,26 +113,42 @@ class StaticDataIngest:
                 f"HTTP Code: {response.status_code}, Status: {response.reason}"
             )
 
-    def _extract_geodata(self, content:dict
-                         ) -> gpd.GeoDataFrame:
-        """
-        Extracts geodataframe object from HTML response content element
-        Args:
-            content(dict): content element of HTML response
+    def _extract_geodata(self, content: dict) -> gpd.GeoDataFrame:
+        """Extract geodataframe object from HTML response content element.
+
+        Parameters
+        ----------
+        content: dict
+            Content element of HTML response
+
+        Returns
+        -------
+        gdf: gpd.GeoDataFrame
+            Raw GeoDataFrame of full content returned from API call
+
         """
         gdf = gpd.GeoDataFrame.from_features(
-                content["features"],
-                crs=content["crs"]["properties"]["name"]
-            )
+            content["features"], crs=content["crs"]["properties"]["name"]
+        )
         return gdf
 
-    def ingest_data_from_geoportal(self, url: str = None, filename: str = None
-                                   ) -> None:
-        """
-        Ingests data from API endpoint of ONS GeoPortal
-        Args:
-            url(str): API endpoint
-            filename(str): local storage location
+    def ingest_data_from_geoportal(
+        self, url: str = None, filename: str = None
+    ) -> None:
+        """Ingest data from API endpoint of ONS GeoPortal.
+
+        Parameters
+        ----------
+        url: str
+            API endpoint
+        filename: str
+            Filepath to local storage location
+
+        Raises
+        ------
+        FileExistsError
+            When boundaries data already exists at given filepath
+
         """
         if url is None:
             url = self.boundaries[self.geography]["url"]
@@ -98,9 +165,7 @@ class StaticDataIngest:
             offset = len(gdf)  # rows in initial cut
 
             while more_pages:
-                query_params[
-                    "resultOffset"
-                ] += offset
+                query_params["resultOffset"] += offset
                 response = self._connect_to_endpoint(url)
                 content = response.json()
                 add_gdf = self._extract_geodata(content)
@@ -115,25 +180,43 @@ class StaticDataIngest:
             gdf.to_file(filename, driver="GeoJSON")
 
         else:
-            raise FileExistsError("The file you are downloading to already exists")
+            raise FileExistsError(
+                "The file you are downloading to already exists (bounds)"
+            )
 
         return None
 
+    def ingest_bus_timetable(self, region: str = None) -> None:
+        """Ingest bus timetable for a single region.
 
-    def ingest_bus_timetable(self, url:str = None, filename:str = None
-                             ) -> None:
-        # if either missing then pull defaults to avoid mismatches
-        if (url is None)|(filename is None):
-            url = f"{self.timetable_url_prefix}/{self.timetable_region.lower()}"
-            filename = f"data/timetable/{self.timetable_region.lower()}.zip"
+        Parameters
+        ----------
+        region: str
+            Region data to be ingested
+
+        Raises
+        ------
+        FileExistsError
+            When timetable data already exists at given filepath
+
+        """
+        date = str(datetime.now().date())
+        if region is None:
+            url = f"{self.timetable_url_prefix}/{self.region.lower()}"
+            filename = f"data/timetable/{self.region.lower()}_{date}.zip"
+        else:
+            url = f"{self.timetable_url_prefix}/{region}"
+            filename = f"data/timetable/{region}_{date}.zip"
 
         if not os.path.exists(filename):
             r = self._connect_to_endpoint(url)
 
             with open(filename, "wb") as f:
-                    f.write(r.content)
+                f.write(r.content)
 
         else:
-            raise FileExistsError("The file you are downloading to already exists")
+            raise FileExistsError(
+                "The file you are downloading to already exists (timetable)"
+            )
 
         return None
