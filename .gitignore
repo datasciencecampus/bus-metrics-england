@@ -4,6 +4,8 @@
 !data/timetable/.gitkeep
 !outputs/.gitkeep
 .vscode
+notebooks/
+config.py
 
 ### Contentious file types (can be removed at user discretion) ###
 
