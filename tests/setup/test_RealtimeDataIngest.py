@@ -12,7 +12,8 @@ tool = RealtimeDataIngest()
 def test_error_API_failure():
     """Simple test to check raise error if API key faulty."""
     # TODO: check multiple warnings raised
-    tool.api_key = os.getenv("test_BODS_API_KEY")
+    # pragma: allowlist nextline secret
+    tool.api_key = "test_key"
     with pytest.raises(AttributeError) as excinfo:
         tool._api_call()
     assert type(excinfo.value) == AttributeError
