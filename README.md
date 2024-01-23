@@ -13,7 +13,28 @@
 This repo aims to provide other developers with tools to interrogate bus services in England by combining realtime (from the Bus Open Data Service) and timetable data (from Department for Transport). We aim to build flexibility for analysis at different geography levels and across a range of metrics, including service coverage, punctuality and quality of service (e.g. excess wait time).
 
 ## Installation
-Further information will follow...
+The project requires specific versions of some packages so it is recommended to set up a virtual environment, using both **venv** and **pip**:
+
+```shell
+python3.11 -m venv <name>
+source <name>/bin/activate
+conda deactivate
+
+python -m pip install --upgrade pip
+python -m pip install -r requirements.txt
+```
+
+You will also require a `.env` file in the format:
+
+```shell
+BODS_API_KEY="<api key for the BODS service>"
+```
+
+Data ingest scripts are now available. All resources (including geography and timetable data) and a sample 1 minute cut of real time data can be obtained:
+
+```shell
+python setup.py
+```
 
 ### Pre-commit actions
 This repository contains a configuration of pre-commit hooks. These are language agnostic and focussed on repository security (such as detection of passwords and API keys). If approaching this project as a developer, you are encouraged to install and enable `pre-commits` by running the following in your shell:
@@ -48,7 +69,7 @@ flowchart LR
    id3a & id3b & id3c & id3d --> id4{Process data}
    id4 ==> id5a([Export metrics by geography])
    id4 ==> id5b([Visualise metrics on England map])
-   
+
 ```
 
 
