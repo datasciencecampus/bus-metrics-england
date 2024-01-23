@@ -30,6 +30,8 @@ class StaticDataIngest:
     geoportal_query_params: dict
         Dictionary of parameters required in ONS GeoPortal
         API call
+    zip_fp_root: str
+        Root filepath to zip storage location
 
     Methods
     -------
@@ -53,6 +55,7 @@ class StaticDataIngest:
         self.timetable_url_prefix = self.config["timetable_url_prefix"]
         self.geoportal_query_params = self.config["geoportal_query_params"]
         self.boundaries = self.config["boundaries"]
+        self.zip_fp_root: str = "data/timetable"
 
     def import_stops_from_naptan(self, filename: str = None) -> None:
         """Import and store NAPTAN stops data.
@@ -203,10 +206,10 @@ class StaticDataIngest:
         date = str(datetime.now().date())
         if region is None:
             url = f"{self.timetable_url_prefix}/{self.region.lower()}"
-            filename = f"data/timetable/{self.region.lower()}_{date}.zip"
+            filename = f"{self.zip_fp_root}/{self.region.lower()}_{date}.zip"
         else:
             url = f"{self.timetable_url_prefix}/{region}"
-            filename = f"data/timetable/{region}_{date}.zip"
+            filename = f"{self.zip_fp_root}/{region}_{date}.zip"
 
         if not os.path.exists(filename):
             r = self._connect_to_endpoint(url)

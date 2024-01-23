@@ -39,7 +39,7 @@ class RealtimeDataIngest:
 
     def __init__(self, time_ingest: str = datetime.now().ctime()):
         self.config: dict = toml.load("src/setup/ingest.toml")
-        self.api_key: str = os.get_env("BODS_API_KEY")
+        self.api_key: str = os.getenv("BODS_API_KEY")
         self.region: str = self.config["region_to_analyse"]
         self.time_ingest: str = time_ingest
         self.store_data_fp: str = f"data/realtime/{self.region}"
