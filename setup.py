@@ -76,6 +76,7 @@ if __name__ == "__main__":  # noqa: C901
         ):
             try:
                 logger.info("Importing example realtime data")
+                rTool.api_call()
                 rTool.parse_realtime()
                 time.sleep(10)
             except Exception as e:

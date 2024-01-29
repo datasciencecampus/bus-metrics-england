@@ -9,6 +9,7 @@ from datetime import datetime
 import numpy as np
 from bods_client.client import BODSClient
 from bods_client.models import BoundingBox, GTFSRTParams
+from google.transit import gtfs_realtime_pb2
 
 load_dotenv()
 
@@ -29,6 +30,8 @@ class RealtimeDataIngest:
         Name of BODS API key variable in .env
     store_data_fp: str
         Root path to storage destination
+    message: gtfs_realtime_pb2.FeedMessage
+        Protobuf feed message from BODS API
 
     Methods
     -------
@@ -43,8 +46,9 @@ class RealtimeDataIngest:
         self.region: str = self.config["region_to_analyse"]
         self.time_ingest: str = time_ingest
         self.store_data_fp: str = f"data/realtime/{self.region}"
+        self.message: gtfs_realtime_pb2.FeedMessage = None
 
-    def _api_call(self) -> dict:
+    def api_call(self) -> dict:
         """Ingest all bus locations within specified bounding box.
 
         Returns
@@ -59,9 +63,9 @@ class RealtimeDataIngest:
             **self.config["regions"]["bounds"][self.region]
         )
         params = GTFSRTParams(bounding_box=bounding_box)
-        message = bods.get_gtfs_rt_data_feed(params=params)
+        self.message = bods.get_gtfs_rt_data_feed(params=params)
 
-        return message.entity
+        return None
 
     def parse_realtime(self, filename: str = None) -> None:
         """Parse API return and write to csv file.
@@ -72,7 +76,7 @@ class RealtimeDataIngest:
             Full filepath to storage location
 
         """
-        packet = self._api_call()
+        packet = self.message.entity
         num_buses = len(packet)
 
         if filename is None:
