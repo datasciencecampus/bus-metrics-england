@@ -19,11 +19,11 @@ geography = "lsoa"
 
 [boundaries.lsoa]
 "filename" = "data/resources/LSOA_boundaries.geojson"
-"url" = "https=//services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Lower_layer_Super_Output_Areas_2021_EW_BSC_v2/FeatureServer/0/query"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Lower_layer_Super_Output_Areas_2021_EW_BSC_v2/FeatureServer/0/query"
 
 [boundaries.bua]
 "filename" = "data/resources/BUA_boundaries.geojson"
-"url" = "https=//services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/BUA_2022_GB/FeatureServer/0/query"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/BUA_2022_GB/FeatureServer/0/query"
 # oa
 # ttwa
 # region
