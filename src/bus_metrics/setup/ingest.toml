@@ -1,0 +1,29 @@
+download_realtime_sample = true
+geoportal_query_params = {"where" = "1=1", "outSR" = 4326, "outFields" = "*", "f" = "geoJSON", "resultOffset" = 0, "returnExceededLimitFeatures" = true}
+timetable_url_prefix = "https://data.bus-data.dft.gov.uk/timetable/download/gtfs-file"
+region_to_analyse = "north_east"
+geography = "lsoa"
+
+[regions.bounds]
+"north_east"= {"min_latitude"= 54.451138, "max_latitude"= 55.811085, "min_longitude"= -2.689790, "max_longitude"= -0.788390}
+"north_west"= {"min_latitude"= 52.947165, "max_latitude"= 55.188984, "min_longitude"= -3.639791, "max_longitude"= -1.909621}
+"yorkshire"= {"min_latitude"= 53.301570, "max_latitude"= 54.560230, "min_longitude"= -2.564741, "max_longitude"= 0.146877}
+"east_midlands"= {"min_latitude"= 51.977278, "max_latitude"= 53.616388, "min_longitude"= -2.034097, "max_longitude"= 0.355628}
+"west_midlands"= {"min_latitude"= 51.825950, "max_latitude"= 53.226242, "min_longitude"= -3.235541	, "max_longitude"= -1.172126}
+"east_anglia"= {"min_latitude"= 51.451118, "max_latitude"= 52.987978, "min_longitude"= -0.745766, "max_longitude"= 1.763706}
+"south_east"= {"min_latitude"= 50.574889, "max_latitude"= 52.196336, "min_longitude"= -1.957270, "max_longitude"= 1.449703}
+"south_west"= {"min_latitude"= 49.864668, "max_latitude"= 52.112593, "min_longitude"= -6.418667, "max_longitude"= -1.485711}
+# london  # out of scope
+# wales  # out of scope
+# scotland  # out of scope
+
+[boundaries.lsoa]
+"filename" = "data/resources/LSOA_boundaries.geojson"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Lower_layer_Super_Output_Areas_2021_EW_BSC_v2/FeatureServer/0/query"
+
+[boundaries.bua]
+"filename" = "data/resources/BUA_boundaries.geojson"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/BUA_2022_GB/FeatureServer/0/query"
+# oa
+# ttwa
+# region

@@ -1,6 +1,11 @@
 ### Project structure ###
-data/*
-outputs/*
+!data/realtime/.gitkeep
+!data/resources/.gitkeep
+!data/timetable/.gitkeep
+!outputs/.gitkeep
+.vscode
+notebooks/
+config.py
 
 ### Contentious file types (can be removed at user discretion) ###
 
@@ -18,6 +23,7 @@ outputs/*
 *.rda
 *.parquet
 *.arrow
+*.geojson
 
 # Office files
 *.doc
@@ -124,6 +130,7 @@ coverage.xml
 .hypothesis/
 .pytest_cache/
 cover/
+!tests/data/*
 
 # Translations
 *.mo

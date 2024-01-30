@@ -1,0 +1,41 @@
+name: CodeCov
+on:
+  push:  # all pushes
+  pull_request:
+    branches: ["main", "dev"]
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    env:
+      OS: ubuntu-latest
+
+    steps:
+    - name: Checkout Repo
+      uses: actions/checkout@v3
+
+    - name: Setup Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: 3.11.7
+        cache: 'pip' # caching pip dependencies
+
+    - name: Install requirements
+      run: |
+        pip install --upgrade pip
+        pip install -r requirements.txt
+        pip install coverage
+        pip install coverage[toml]
+        pip install -e .
+
+    - name: Generate Report
+      run: |
+        coverage run -m pytest
+        coverage xml
+
+    - name: Upload Coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        verbose: true
+        token: ${{secrets.CODECOV_TOKEN}}

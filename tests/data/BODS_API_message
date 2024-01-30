@@ -1,0 +1,28 @@
+header {
+  gtfs_realtime_version: "2.0"
+  incrementality: FULL_DATASET
+  timestamp: 1706083717
+}
+entity {
+  id: "11676517481324422190"
+  vehicle {
+    trip {
+      trip_id: "VJ11a8cdf74e00ec5a7f45219f96e6e10e8d7390e6"
+      start_time: "07:40:00"
+      start_date: "20240124"
+      schedule_relationship: SCHEDULED
+      route_id: "11322"
+    }
+    position {
+      latitude: 51.27666
+      longitude: 0.111105
+      bearing: 359.0
+    }
+    current_stop_sequence: 8
+    current_status: IN_TRANSIT_TO
+    timestamp: 1706083529
+    vehicle {
+      id: "9003"
+    }
+  }
+}

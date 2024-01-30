@@ -11,3 +11,5 @@ pyarrow==14.0
 pytest
 pytest-pythonpath
 Rtree==1.1.0
+python-dotenv
+coverage
