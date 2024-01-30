@@ -1,0 +1,11 @@
+# `pytest` configurations
+[tool.pytest.ini_options]
+testpaths = [
+    "./tests"
+]
+# `coverage` minimal configurations
+[tool.coverage.run]
+source = [
+    "./src"
+]
+omit = ["**/__init__.py"]
