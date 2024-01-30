@@ -1,3 +1,21 @@
+[build-system]
+build-backend = "setuptools.build_meta"
+requires = ["setuptools>=61.0.0", "wheel"]
+
+[project]
+name = "bus_metrics"
+authors = [
+    {name = "Data Science Campus", email = "datasciencecampus@ons.gov.uk"}
+]
+description = "Something descriptive"
+readme = "README.md"
+
+requires-python = ">=3.9, <3.10"
+version = "0.0.1"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
 # `pytest` configurations
 [tool.pytest.ini_options]
 testpaths = [
