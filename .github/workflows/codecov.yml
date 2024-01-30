@@ -26,6 +26,7 @@ jobs:
         pip install coverage
         pip install coverage[toml]
         coverage run -m pytest
+        coverage report xml
 
     - name: Upload Coverage to Codecov
       run: |
