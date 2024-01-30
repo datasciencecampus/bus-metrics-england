@@ -33,7 +33,9 @@ jobs:
         coverage xml
 
     - name: Upload Coverage to Codecov
-      run: |
-        curl -Os https://uploader.codecov.io/latest/macos/codecov
-        chmod +x codecov
-        ./codecov -t ${CODECOV_TOKEN}
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        verbose: true
+        token: ${{secrets.CODECOV_TOKEN}}
