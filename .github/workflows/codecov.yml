@@ -19,14 +19,17 @@ jobs:
         python-version: 3.11.7
         cache: 'pip' # caching pip dependencies
 
-    - name: Generate Report
+    - name: Install requirements
       run: |
         pip install --upgrade pip
         pip install -r requirements.txt
         pip install coverage
         pip install coverage[toml]
+
+    - name: Generate Report
+      run: |
         coverage run -m pytest
-        coverage report xml
+        coverage report xml -i
 
     - name: Upload Coverage to Codecov
       run: |
