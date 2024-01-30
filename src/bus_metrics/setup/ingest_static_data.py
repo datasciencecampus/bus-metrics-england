@@ -48,7 +48,7 @@ class StaticDataIngest:
         self,
         naptan_filename: str = "data/resources/gb_stops.csv",
     ):
-        self.config = toml.load("src/setup/ingest.toml")
+        self.config = toml.load("src/bus_metrics/setup/ingest.toml")
         self.naptan_filename = naptan_filename
         self.geography = self.config["geography"]
         self.region = self.config["region_to_analyse"]

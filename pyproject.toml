@@ -1,0 +1,26 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+[project]
+name = "bus_metrics"
+version = "0.0.1"
+authors = [
+    {name = "Data Science Campus", email = "datasciencecampus@ons.gov.uk"}
+]
+description = "Something descriptive"
+readme = "README.md"
+requires-python = ">=3.9"
+[tool.hatch.build.targets.wheel]
+      packages = ["src/bus_metrics"]
+
+# `pytest` configurations
+[tool.pytest.ini_options]
+testpaths = [
+    "./tests"
+]
+# `coverage` minimal configurations
+[tool.coverage.run]
+source = [
+    "./src"
+]
+omit = ["**/__init__.py"]

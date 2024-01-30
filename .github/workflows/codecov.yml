@@ -19,16 +19,23 @@ jobs:
         python-version: 3.11.7
         cache: 'pip' # caching pip dependencies
 
-    - name: Generate Report
+    - name: Install requirements
       run: |
         pip install --upgrade pip
         pip install -r requirements.txt
         pip install coverage
         pip install coverage[toml]
+        pip install -e .
+
+    - name: Generate Report
+      run: |
         coverage run -m pytest
+        coverage xml
 
     - name: Upload Coverage to Codecov
-      run: |
-        curl -Os https://uploader.codecov.io/latest/macos/codecov
-        chmod +x codecov
-        ./codecov -t ${CODECOV_TOKEN}
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./coverage.xml
+        flags: unittests
+        verbose: true
+        token: ${{secrets.CODECOV_TOKEN}}
