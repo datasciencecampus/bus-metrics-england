@@ -1,7 +1,7 @@
 """Tests for ingest_static_data module."""
 
 import pytest
-from src.setup.ingest_static_data import StaticDataIngest
+from bus_metrics.setup.ingest_static_data import StaticDataIngest
 from datetime import datetime
 import os
 
