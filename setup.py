@@ -1,6 +1,6 @@
 """Initial pipeline to obtain project resources/data."""
-from src.setup.ingest_static_data import StaticDataIngest
-from src.setup.ingest_realtime_data import RealtimeDataIngest
+from bus_metrics.setup.ingest_static_data import StaticDataIngest
+from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from datetime import datetime
 import logging
 import os
@@ -9,7 +9,7 @@ import time
 
 sTool = StaticDataIngest()
 rTool = RealtimeDataIngest()
-ingest_toml = toml.load("src/setup/ingest.toml")
+ingest_toml = toml.load("src/bus_metrics/setup/ingest.toml")
 scriptStartTime = datetime.now()
 scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())
 
