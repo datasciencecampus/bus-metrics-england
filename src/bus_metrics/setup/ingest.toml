@@ -36,7 +36,7 @@ geography = "lsoa"
 "name" = "LAD23NM"
 
 [boundaries.region]   # Dec 2022
-"filename" = "data/resources/RGN_boundaries.geojson"
+"filename" = "data/resources/region_boundaries.geojson"
 "url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Regions_December_2022_Boundaries_EN_BFC_V2/FeatureServer/0/query"
 "code" = "RGN22CD"
 "name" = "RGN22NM"
