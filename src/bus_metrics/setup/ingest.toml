@@ -18,12 +18,31 @@ geography = "lsoa"
 # scotland  # out of scope
 
 [boundaries.lsoa]
-"filename" = "data/resources/LSOA_boundaries.geojson"
-"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Lower_layer_Super_Output_Areas_2021_EW_BSC_v2/FeatureServer/0/query"
+"filename" = "data/resources/LSOA_boundaries.geojson"    # Census 2021
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Lower_layer_Super_Output_Areas_2021_EW_BFC_V8/FeatureServer/0/query"
+"code" = "LSOA21CD"
+"name" = "LSOA21NM"
 
 [boundaries.bua]
-"filename" = "data/resources/BUA_boundaries.geojson"
+"filename" = "data/resources/BUA_boundaries.geojson"     # Dec 2022
 "url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/BUA_2022_GB/FeatureServer/0/query"
-# oa
-# ttwa
-# region
+"code" = "BUA22CD"
+"name" = "BUA22NM"
+
+[boundaries.lad]   # Dec 2023
+"filename" = "data/resources/LAD_boundaries.geojson"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Local_Authority_Districts_December_2023_Boundaries_UK_BSC/FeatureServer/0/query"
+"code" = "LAD23CD"
+"name" = "LAD23NM"
+
+[boundaries.region]   # Dec 2022
+"filename" = "data/resources/RGN_boundaries.geojson"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Regions_December_2022_Boundaries_EN_BFC_V2/FeatureServer/0/query"
+"code" = "RGN22CD"
+"name" = "RGN22NM"
+
+[boundaries.ttwa]   # Dec 2022
+"filename" = "data/resources/TTWA_boundaries.geojson"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Travel_to_Work_Areas_Dec_2011_FCB_in_United_Kingdom_2022/FeatureServer/0/query"
+"code" = "TTWA11CD"
+"name" = "TTWA11NM"
