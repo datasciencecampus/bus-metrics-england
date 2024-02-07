@@ -1,30 +1,59 @@
-"""Associate multiple geography labels to NAPTAN stops."""
+"""Tool to generate lookup table for stops to various geography levels."""
 
-# %%
 import toml
 import geopandas as gpd
 import pandas as pd
 from src.bus_metrics.setup.ingest_static_data import StaticDataIngest
 
 
-def _build_lookup_tool(df, bounds, bounds_code, bounds_name):
-    """Merge boundaries to stops."""
-    df["geometry"] = gpd.points_from_xy(
-        df["stop_lon"], df["stop_lat"]
-    )  # noqa: E501
-    df = gpd.GeoDataFrame(df)
-    df = df.set_crs("4326")
-    df_labelled = df.sjoin(bounds, how="left", predicate="within")
+def _build_lookup_tool(
+    stops: pd.DataFrame,
+    bounds: gpd.GeoDataFrame,
+    bounds_code: str,
+    bounds_name: str,
+) -> pd.DataFrame:
+    """Allocate geography labels to bus stops by means of a spatial join.
 
-    cols = list(df.columns)
+    Parameters
+    ----------
+    stops: pandas.DataFrame
+        Dataframe of NAPTAN stops data.
+    bounds: geopandas.GeoDataFrame
+        Dataframe of geography boundaries data.
+    bounds_code: str
+        Geography code e.g. LSOA21CD
+    bounds_name: str
+        Geography name e.g. LSOA21NM
+
+    Returns
+    -------
+    df: pandas.DataFrame
+        Dataframe of stops-geography lookup table.
+
+    """
+    stops["geometry"] = gpd.points_from_xy(
+        stops["stop_lon"], stops["stop_lat"]
+    )
+    stops = gpd.GeoDataFrame(stops)
+    stops = stops.set_crs("4326")
+    df = stops.sjoin(bounds, how="left", predicate="within")
+
+    cols = list(stops.columns)
     cols.extend((bounds_code, bounds_name))
-    df_labelled = df_labelled[cols]
+    df = df[cols]
 
-    return df_labelled
+    return df
 
 
-def main():
-    """Download and process boundaries data. Label stops."""
+def main() -> pd.DataFrame:
+    """Download and process boundaries data. Label stops.
+
+    Returns
+    -------
+    stops: pandas.DataFrame
+        Dataframe of stops-geography lookup table.
+
+    """
     installer = StaticDataIngest()
     config = toml.load("src/bus_metrics/setup/ingest.toml")
     boundaries = config["boundaries"]
