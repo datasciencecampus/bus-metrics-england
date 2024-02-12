@@ -10,6 +10,7 @@ pre-commit
 pyarrow==14.0
 pytest
 pytest-pythonpath
+pytest-mock
 Rtree==1.1.0
 python-dotenv
 coverage

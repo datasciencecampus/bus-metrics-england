@@ -69,7 +69,8 @@ class AggregationTool:
             return df
 
         except FileNotFoundError as e:
-            raise e("Please re-run the build_lookup.py script.")
+            print(e, "Please re-run the build_lookup.py script.")
+            raise
 
     def _reaggregate_punctuality(
         self, labelled: pd.DataFrame = None
