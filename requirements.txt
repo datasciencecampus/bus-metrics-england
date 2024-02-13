@@ -11,6 +11,8 @@ pyarrow==14.0
 pytest
 pytest-pythonpath
 pytest-mock
+pytest-randomly
 Rtree==1.1.0
 python-dotenv
 coverage
+gtfs-realtime-bindings>=0.0.7

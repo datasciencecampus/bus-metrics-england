@@ -33,16 +33,20 @@ class AggregationTool:
     def __init__(
         self,
         stop_level_punctuality: str = "data/stop_level_punctuality/synth_punc.csv",  # noqa: E501
+        geography_lookup_table: str = "data/resources/geography_lookup_table.csv",  # noqa: E501
         config: dict = toml.load("src/bus_metrics/setup/ingest.toml"),
         geography: str = "lsoa",
+        outdir: str = "outputs/punctuality",
     ) -> None:
 
         self.stop_level_punctuality = stop_level_punctuality
+        self.geography_lookup_table = geography_lookup_table
         self.geography = geography
         self.code = config["boundaries"][self.geography]["code"]
         self.name = config["boundaries"][self.geography]["name"]
+        self.outdir = outdir
 
-    def _merge_geographies_with_stop_punctuality(
+    def merge_geographies_with_stop_punctuality(
         self,
     ) -> pd.DataFrame | Exception:
         """Merge geography labels and stop-level punctuality.
@@ -62,10 +66,13 @@ class AggregationTool:
         """
         try:
             stops = pd.read_csv(self.stop_level_punctuality, index_col=0)
-            lookup = pd.read_csv(
-                "data/resources/geography_lookup_table.csv", index_col=0
+            lookup = pd.read_csv(self.geography_lookup_table, index_col=0)
+            df = pd.merge(
+                stops,
+                lookup,
+                on=["stop_id", "stop_lat", "stop_lon"],
+                how="left",
             )
-            df = pd.merge(stops, lookup, on="stop_id", how="left")
             return df
 
         except FileNotFoundError as e:
@@ -113,7 +120,7 @@ class AggregationTool:
             and punctuality rate aggregated by geography.
 
         """
-        df = self._merge_geographies_with_stop_punctuality()
+        df = self.merge_geographies_with_stop_punctuality()
         df = self._reaggregate_punctuality(df)
-        df.to_csv(f"outputs/punctuality/{self.geography}.csv")
+        df.to_csv(f"{self.outdir}/{self.geography}.csv")
         return df
