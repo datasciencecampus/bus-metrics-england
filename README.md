@@ -1,5 +1,5 @@
 <!--- Badges start --->
-<img src="https://img.shields.io/badge/repo%20status-in%20development%20(caution)-red" alt="Repository status is still in development (caution required)"/>
+<img src="https://img.shields.io/badge/repo%20status-in%20development%20(caution)-red" alt="Repository status is still in development (caution required)"/> <a href="https://codecov.io/gh/datasciencecampus/bus-metrics-england" > <img src="https://codecov.io/gh/datasciencecampus/bus-metrics-england/branch/dev/graph/badge.svg?token=hnkFyxDgV7"/></a>
 <!--- Badges end --->
 
 <img src="https://github.com/datasciencecampus/awesome-campus/blob/master/ons_dsc_logo.png">
