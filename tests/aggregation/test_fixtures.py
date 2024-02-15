@@ -4,9 +4,12 @@
 import os
 import pytest
 from bus_metrics.setup.ingest_static_data import StaticDataIngest
+from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
+from bus_metrics.aggregation.build_schedules import Schedule_Builder
 from datetime import datetime
 
-tool = StaticDataIngest()
+stool = StaticDataIngest()
+rtool = RealtimeDataIngest()
 date = datetime.now().strftime("%Y%m%d")
 
 ###########
@@ -57,11 +60,100 @@ def test_gtfs_path(tmp_path_factory):
         os.makedirs(gtfs_path)
 
     # set download path
-    tool.zip_fp_root = os.path.join(gtfs_path)
+    stool.zip_fp_root = os.path.join(gtfs_path)
 
     try:
-        tool.ingest_bus_timetable(region="north_east")
+        stool.ingest_bus_timetable(region="north_east")
     except FileExistsError:
         print("GTFS already downloaded.")
 
     return gtfs_path
+
+
+@pytest.fixture(scope="session")
+def test_real_path(tmp_path_factory):
+    """Downloads realtime to temp folder, returns path.
+
+    Returns
+    -------
+    gtfs_path : str
+        Path to the temporary folder which contains GTFS.
+
+    """
+    real_path = os.path.join(tmp_path_factory.getbasetemp(), "real")
+
+    if not os.path.exists(real_path):
+        # If it doesn't exist, create the folder
+        os.makedirs(real_path)
+
+    # set download path
+    rtool.root = os.path.join(real_path)
+
+    fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
+
+    rtool.api_call()
+    rtool.parse_realtime(
+        filename=os.path.join(real_path, f"north_east_{date}_{fileTimeStamp}")
+    )
+
+    return real_path
+
+
+@pytest.fixture(scope="module")
+def config():
+    """Create a template config for tests.
+
+    Returns
+    -------
+    config : dict
+        Example config dict using North East for today.
+
+    """
+    config_setup = {
+        "region": "north_east",
+        "date": str(date),
+        "time_from": 7,
+        "time_to": 10,
+        "partial_timetable": False,
+        "route_types": [3],
+        "output_unlabelled_bulk": True,
+    }
+
+    return config_setup
+
+
+@pytest.fixture(scope="module")
+def stops_test(tmp_path_factory):
+    """Download stop data to tmp_path_factory.
+
+    Returns
+    -------
+    stop_path : str
+        Path to gb_stops.csv
+
+    """
+    stop_path = os.path.join(
+        f"{tmp_path_factory.getbasetemp()}", "gb_stops.csv"
+    )
+    stool.import_stops_from_naptan(filename=stop_path)
+
+    return stop_path
+
+
+@pytest.fixture(scope="module")
+def test_class_instantiate(config, test_gtfs_path):
+    """Test class for future tests.
+
+    Returns
+    -------
+    builder : Schedule_builder
+        Instantiated class.
+
+    """
+    class_input = config
+
+    builder = Schedule_Builder(**class_input)
+    builder.timetable_dir = test_gtfs_path
+    # builder.realtime_dir =
+
+    return builder
