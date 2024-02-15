@@ -213,10 +213,10 @@ class Schedule_Builder:
         # collate all realtime ingests to single dataframe
         tables = os.path.join(dir, f"{region}_{self.date}*.csv")
         tables = glob.glob(tables)
-        df_list = (
+        df_list = [
             polars_robust_load_csv(table, dtypes={"route_id": pl.Utf8})
             for table in tables
-        )
+        ]
         df = pl.concat(df_list)
 
         return df
