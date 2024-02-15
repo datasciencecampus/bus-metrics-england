@@ -3,6 +3,7 @@
 # from pyprojroot import here
 import os
 import pytest
+import time
 from bus_metrics.setup.ingest_static_data import StaticDataIngest
 from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from bus_metrics.aggregation.build_schedules import Schedule_Builder
@@ -86,15 +87,22 @@ def test_real_path(tmp_path_factory):
         # If it doesn't exist, create the folder
         os.makedirs(real_path)
 
-    # set download path
-    rtool.root = os.path.join(real_path)
+    scriptStartTime = datetime.now()
+    scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())
 
-    fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
-
-    rtool.api_call()
-    rtool.parse_realtime(
-        filename=os.path.join(real_path, f"north_east_{date}_{fileTimeStamp}")
-    )
+    while time.mktime(datetime.now().timetuple()) < scriptStartTimeUnix + 30:
+        try:
+            rtool.api_call()
+            fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
+            rtool.parse_realtime(
+                filename=os.path.join(
+                    real_path, f"north_east_{date}-{fileTimeStamp}.csv"
+                )
+            )
+            time.sleep(10)
+        except Exception as e:
+            print(e)
+            pass
 
     return real_path
 
@@ -141,7 +149,7 @@ def stops_test(tmp_path_factory):
 
 
 @pytest.fixture(scope="module")
-def test_class_instantiate(config, test_gtfs_path):
+def test_class_instantiate(config, test_gtfs_path, test_real_path):
     """Test class for future tests.
 
     Returns
@@ -154,6 +162,6 @@ def test_class_instantiate(config, test_gtfs_path):
 
     builder = Schedule_Builder(**class_input)
     builder.timetable_dir = test_gtfs_path
-    # builder.realtime_dir =
+    builder.realtime_dir = test_real_path
 
     return builder

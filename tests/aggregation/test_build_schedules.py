@@ -22,3 +22,9 @@ def test_build_timetable_func(stops_test, test_class_instantiate, config):
     assert (type(timetable_df) == pl.DataFrame) & (
         len(timetable_df) > 1
     ), "Timetable Data not read in."
+
+
+def test_build_realtime_func(test_class_instantiate, config):
+    """Simple test to check loading of realtime data."""
+    real_df, _ = test_class_instantiate.build_realtime(config["region"])
+    assert type(real_df) == pl.DataFrame
