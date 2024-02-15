@@ -1,81 +1,278 @@
+"""Class to create a region wide stops reliability metric."""
+
 from datetime import datetime
 import logging
 import toml
 import os
-from src.make_data.make_gtfs_from_real import GTFS_Builder
-from src.utils.call_data_from_bucket import ingest_file_from_gcp
-from src.utils.preprocessing import (
+import glob
+from src.bus_metrics.aggregation.preprocessing import (
     build_stops,
-    apply_geography_label,
     convert_SINGLE_datetime_to_unix,
+    polars_robust_load_csv,
+    unzip_GTFS,
+    convert_string_time_to_unix,
 )
-from src.utils.resourcing import ingest_data_from_geoportal
 import polars as pl
-import geopandas as gpd
 
 
 class Schedule_Builder:
-    """Auto-builds timetable and realtime data as a single schedule
-    for all England on one single day. N.B. only service stops that
-    are common in both timetable and realtime AND labelled correctly"""
+    """Class to load data and create metrics.
+
+    Auto-builds timetable and realtime data as a single schedule
+    for single English region on one single day. N.B. only service stops that
+    are common in both timetable and realtime AND labelled correctly.
+
+    Parameters
+    ----------
+    region : str, optional
+        Region (Bounding Box) to read in realtime data and calculate metrics.
+    date : str, optional
+        Date of day in which to calculate metrics.
+    time_from : float, optional
+        Start time in which to filter timetable and real time data to.
+    time_to : float, optional
+        End time in which to filter timetable and real time data to.
+    partial_timetable : bool, optional
+        Flag to use `time_from` and `time_to` to filter data.
+    route_types : list, optional
+        List of route codes to include in metric calculation e.g. [3] for bus.
+    output_unlabelled_bulk : bool, optional
+        Option to save unlabelled real time data if ingested.
+    logger : loggin.logger, optional
+        Logger instance to save progress messages.
+
+    """
 
     def __init__(
         self,
-        tt_regions: list = [
-            "EastAnglia",
-            "EastMidlands",
-            "NorthEast",
-            "NorthWest",
-            "SouthEast",
-            "SouthWest",
-            "WestMidlands",
-            "Yorkshire",
-        ],
-        rt_regions: list = [
-            "EastMidlands",
-            "EastofEngland",
-            "NorthEast",
-            "NorthWest",
-            "SouthEast",
-            "SouthWest",
-            "WestMidlands",
-            "YorkshireandTheHumber",
-        ],
-        region: str = "YorkshireandTheHumber",
-        date: str = "20231103",
+        # tt_regions: list = [
+        #     "east_anglia",
+        #     "east_midlands",
+        #     "north_east",
+        #     "north_west",
+        #     "south_East",
+        #     "south_west",
+        #     "west_midlands",
+        #     "yorkshire",
+        # ],
+        # rt_regions: list = [
+        #     "east_anglia",
+        #     "east_midlands",
+        #     "north_east",
+        #     "north_west",
+        #     "south_East",
+        #     "south_west",
+        #     "west_midlands",
+        #     "yorkshire",
+        # ],
+        region: str = "north_east",
+        date: str = "20240212",
         time_from: float = 7.0,
         time_to: float = 10.0,
-        partial_timetable: bool = True,
+        partial_timetable: bool = False,
+        route_types: list = [3],
         output_unlabelled_bulk: bool = False,
-        boundaries: str = "data/LSOA_2021_boundaries.geojson",
-        logger: logging.Logger = (None,),
+        logger: logging.Logger = None,
     ):
-        self.tt_regions = tt_regions
-        self.rt_regions = rt_regions
         self.region = region
         self.date = date
         self.time_from = time_from
         self.time_to = time_to
         self.partial_timetable = partial_timetable
+        self.route_types = route_types
         self.output_unlabelled_bulk = output_unlabelled_bulk
-        self.boundaries = boundaries
-        self.gtfs = GTFS_Builder(**config["generic"], **config["data_ingest"])
+        self.weekday = datetime.strptime(date, "%Y%m%d").strftime("%A").lower()
+        self.logger = logger
+        self.timetable_dir = "data/timetable"
+        self.realtime_dir = "data/realtime"
 
-        # Initialise logger
-        if logger is None:
-            self.logger = logging.getLogger(__name__)
+    def _load_raw_timetable_data(
+        self,
+        stops: pl.DataFrame,
+        region: str = None,
+    ) -> pl.DataFrame:
+        """Load timetable data.
 
-        else:
-            self.logger = logger
+        Collect and concatenates all timetable data for specified
+        day, returning all individual service stops (every 'bus
+        at stop' activity) for the day.
+
+        Parameters
+        ----------
+        stops : polars.DataFrame
+            NAPTAN stops data.
+        region : str, optional
+            Region name.
+        logger : logger
+            Logging instance to capture progress messages.
+
+        Returns
+        -------
+        service_stops : polars.DataFrame
+            All service stops.
+
+        """
+        if region is None:
+            region = self.region
+
+        from_dir = self.timetable_dir
+
+        unzip_GTFS(
+            txt_path=from_dir,
+            zip_path=from_dir,
+            file_name_pattern=f"{region}_{self.date}.zip",
+            logger=self.logger,
+        )
+
+        calendar_dates = pl.read_csv(
+            f"{from_dir}/calendar_dates.txt", ignore_errors=True
+        )
+        calendar = pl.read_csv(f"{from_dir}/calendar.txt", ignore_errors=True)
+        routes = polars_robust_load_csv(
+            f"{from_dir}/routes.txt", dtypes={"route_id": pl.Utf8}
+        )
+        stop_times = polars_robust_load_csv(
+            f"{from_dir}/stop_times.txt",
+            dtypes={"stop_id": pl.Utf8},
+        )
+
+        trips = polars_robust_load_csv(
+            f"{from_dir}/trips.txt", dtypes={"route_id": pl.Utf8}
+        )
+
+        calendar_dates = calendar_dates.filter(
+            pl.col("date").cast(pl.Utf8) == self.date
+        )
+        exception_drops = calendar_dates.filter(
+            pl.col("exception_type") == 2
+        ).select(  # noqa: E501
+            pl.col("service_id")
+        )
+        exception_adds = calendar_dates.filter(pl.col("exception_type") == 1)[
+            "service_id"
+        ].to_list()
+
+        # filter routes to required route_type(s)
+        routes = routes.filter(pl.col("route_type").is_in(self.route_types))
+
+        # filter to today's activity plus added exceptions
+        active_services = calendar.filter(pl.col(self.weekday) == 1)[
+            "service_id"
+        ].to_list()
+        active_services.extend(exception_adds)
+        trips = trips.filter(pl.col("service_id").is_in(active_services))
+        trips = trips.join(exception_drops, on="service_id", how="anti")
+
+        # drop cancelled services
+        service_stops = (
+            trips.join(stop_times, on="trip_id")
+            .join(stops, on="stop_id", how="left")
+            .join(routes, on="route_id", how="left")
+        )
+
+        # dropping rows with missing values attributed to
+        # route_id or route_type
+        service_stops = service_stops.drop_nulls(
+            subset=["route_id", "route_type"]
+        )
+        # add timetable date column
+        service_stops = service_stops.with_columns(
+            pl.lit(self.date).alias("timetable_date")
+        )
+        # drop all times beyond 24 hour clock
+        # TODO: can these be handled better?
+        service_stops = service_stops.filter(
+            pl.col("arrival_time").str.slice(0, 2).cast(pl.UInt32) < 24
+        )
+
+        service_stops = convert_string_time_to_unix(
+            service_stops, "arrival_time"
+        )
+
+        return service_stops
+
+    def _load_raw_realtime_data(self, region=None) -> pl.DataFrame:
+        """Collect all realtime data for individual day.
+
+        Parameters
+        ----------
+        region : str, optional
+            Region name.
+
+        Returns
+        -------
+        df : polars.DataFrame
+            Unprocessed realtime data.
+
+        """
+        if region is None:
+            region = self.region
+
+        dir = self.realtime_dir
+
+        # collate all realtime ingests to single dataframe
+        tables = os.path.join(dir, f"{region}_{self.date}*.csv")
+        tables = glob.glob(tables)
+        df_list = (
+            polars_robust_load_csv(table, dtypes={"route_id": pl.Utf8})
+            for table in tables
+        )
+        df = pl.concat(df_list)
+
+        return df
+
+    def _split_realtime_data(
+        self, df: pl.DataFrame
+    ) -> (pl.DataFrame, pl.DataFrame):  # noqa: E501
+        """Collect and concatenates all realtime data for specified day.
+
+        Parameters
+        ----------
+        df : polars.DataFrame
+            Unprocessed realtime data.
+
+        Returns
+        -------
+        labelled_real : polars.DataFrame
+            Rows with trip_id & route_id.
+        unlabelled_real (polars df):
+            Row with trip_id & route_id MISSING (currently unused).
+
+        """
+        labelled_real = df.filter(
+            (pl.col("trip_id").is_not_null())
+            & (pl.col("route_id").is_not_null())  # noqa: E501
+        )
+        unlabelled_real = df.filter(
+            (pl.col("trip_id").is_null()) & (pl.col("route_id").is_null())
+        )
+
+        return labelled_real, unlabelled_real
 
     def build_timetable(
         self, stops: pl.DataFrame, region: str
     ) -> pl.DataFrame:
-        """Processes timetable for given region and day, slicing to
-        specified time frame and applying unique identifier to
-        each service stop"""
+        """Load and create day timetable.
 
-        df = self.gtfs.load_raw_timetable_data(stops, region)
+        Processes timetable for given region and day, slicing to
+        specified time frame and applying unique identifier to
+        each service stop.
+
+        Parameters
+        ----------
+        stops : polars.DataFrame
+            Dataframe containing all stops information.
+        region: str
+            Region name to process.
+
+        Returns
+        -------
+        df : polars.DataFrame
+            Datframe of region timetable.
+
+        """
+        df = self._load_raw_timetable_data(stops, region)
+
         # slicing timetable with 30 minute buffers either side of
         # realtime window
         datestamp = convert_SINGLE_datetime_to_unix(date=self.date)
@@ -102,13 +299,28 @@ class Schedule_Builder:
         return df
 
     def build_realtime(self, region: str) -> (pl.DataFrame, pl.DataFrame):
-        """Processes realtime for given region and day.
-        Applies unique identifier to each service stop"""
+        """Process realtime for given region and day.
 
+        Apply unique identifier to each service stop and
+        concat realtime data.
+
+        Parameters
+        ----------
+        region : str
+            Region name of real time data to ingest and process.
+
+        Returns
+        -------
+        df : polars.DataFrame
+            Dataframe of lbelled real time data for region concatenated.
+        unlabelled : polars.DataFrame
+            Dataframe of unlabelled real time data. (Currently not used)
+
+        """
         if region is None:
-            region = self.rt_region
-        df = self.gtfs.load_raw_realtime_data(region)
-        df, unlabelled = self.gtfs.split_realtime_data(df)
+            region = self.region
+        df = self._load_raw_realtime_data(region)
+        df, unlabelled = self._split_realtime_data(df)
         df = df.sort(
             ["trip_id", "current_stop", "time_transpond", "time_ingest"]
         )
@@ -123,13 +335,33 @@ class Schedule_Builder:
                 separator="_",
             ).alias("UID")
         )
-        df = df.unique("UID")
+        df = df.unique("UID", keep="last")
 
         return df, unlabelled
 
-    def punctuality_by_lsoa(self, df: pl.DataFrame) -> pl.DataFrame:
-        """Applies punctuality and punctuality flag to
-        RT/TT combined schedule"""
+    def punctuality_by_stop(
+        self, realtime_df: pl.DataFrame, timetable_df: pl.DataFrame
+    ) -> pl.DataFrame:
+        """Apply punctuality flag to RT/TT combined schedule.
+
+        Parameters
+        ----------
+        realtime_df : polars.DataFrame
+            Dataframe containing real time bus data.
+        timetable_df : polars.DataFrame
+            Dataframe containing timetable bus data.
+
+        Returns
+        -------
+        df : polars.DataFrame
+            Dataframe containing punctual flag of each bus stop ping.
+
+        """
+        df = (
+            realtime_df[["UID", "time_transpond", "bus_id"]]
+            .join(timetable_df, on="UID", how="inner")
+            .unique()
+        )
 
         df = df.with_columns(
             (pl.col("unix_arrival_time") - pl.col("time_transpond")).alias(
@@ -145,7 +377,7 @@ class Schedule_Builder:
             .otherwise(0)
             .alias("punctual")
         )
-        df = df.group_by("LSOA21CD").agg(
+        df = df.group_by("stop_id").agg(
             [
                 pl.count("punctual").alias("num_service_stops"),
                 pl.mean("punctual").alias("avg_punctuality"),
@@ -154,6 +386,8 @@ class Schedule_Builder:
 
         return df
 
+
+# %%
 
 if __name__ == "__main__":
     # define session_id that will be used for log file and feedback
@@ -169,171 +403,48 @@ if __name__ == "__main__":
         filemode="a",
     )
 
-    # load toml config
-    config = toml.load("config.toml")
-    gtfs_build = GTFS_Builder(**config["generic"], **config["data_ingest"])
-    schedule_build = Schedule_Builder(
-        **config["generic"], **config["schedules"]
-    )
-    date = config["generic"]["date"]
-    boundaries_endpoints = config["setup"]["boundaries_endpoints"]
-    boundaries = config["schedules"]["boundaries"]
-    query_params = config["setup"]["query_params"]
+    # load config toml
+    config = toml.load("src/bus_metrics/aggregation/config.toml")
 
-    for tt_region in config["schedules"]["tt_regions"]:
-        ingest_file_from_gcp(
-            logger=logger,
-            region=tt_region,
-            date=date,
-            download_type="timetable",
-        )
+    # load stops file
+    stops = build_stops()
 
-    for rt_region in config["schedules"]["rt_regions"]:
-        ingest_file_from_gcp(
-            logger=logger,
-            region=rt_region,
-            date=date,
-            download_type="realtime",
-        )
+    # Instantiate class
+    test = Schedule_Builder(
+        **config,
+    )  # logger=logger)
 
-    boundary_filename = f"data/resources/{boundaries}"
-    if not os.path.exists(boundary_filename):
-        logger.info("Ingesting boundary data from ONS geoportal")
-        ingest_data_from_geoportal(
-            boundaries_endpoints[boundaries],
-            query_params,
-            filename=boundary_filename,
-        )
+    # could this be in a loop for a larger england downoad?
+    test_tt = test.build_timetable(stops=stops, region=test.region)
 
-    logger.info("Loading boundary data to memory")
-    bounds = gpd.read_file(boundary_filename)
-    # England LSOAs only
-    bounds = bounds[bounds["LSOA21CD"].str[0] == "E"]
-    bounds_lookup = bounds[["LSOA21CD", "LSOA21NM"]]
-    bounds_lookup = pl.from_pandas(bounds_lookup)
+    # Method returns unlabelled, but not ingested
+    test_rt, unlabelled = test.build_realtime(region=test.region)
 
-    logger.info("Loading NAPTAN-geography lookup table")
-    stops = build_stops(output="pandas")
-    stops = apply_geography_label(stops, bounds)
-
-    logger.info("Loading and building from raw timetable data")
-    tt_cols = [
-        "UID",
-        "unix_arrival_time",
-        "trip_id",
-        "route_id",
-        "service_id",
-        "stop_sequence",
-        "trip_headsign",
-        "stop_id",
-        "LSOA21CD",
-        "LSOA21NM",
-        "stop_lat",
-        "stop_lon",
-    ]
-    trigger = 0
-    for region in config["schedules"]["tt_regions"]:
-        logger.info(f"Processing timetable: {region}: {date}")
-        tti = schedule_build.build_timetable(stops, region)
-        tti = tti[tt_cols]
-        if trigger == 0:
-            tt = tti.clone()
-        else:
-            tt = pl.concat([tt, tti], how="vertical_relaxed")
-        trigger += 1
-
-    logger.info("Diagnostics: timetable coverage by LSOA")
-    # illustrative output of timetabled service stops by LSOA
-
-    # TODO: can boundaries geojson be loaded to polars?
-    tt_lsoa_coverage = bounds_lookup.join(
-        (tt.group_by("LSOA21CD").count()),
-        on="LSOA21CD",
-        how="left",
+    final_df_script = test.punctuality_by_stop(
+        realtime_df=test_rt, timetable_df=test_tt
     )
 
-    tt_lsoa_coverage.write_csv(
-        f"data/daily/metrics/tt_lsoa_coverage_{date}.csv"
-    )
-
-    logger.info("Loading and building from raw realtime data")
-    trigger = 0
-    for region in config["schedules"]["rt_regions"]:
-        logger.info(f"Processing realtime: {region}: {date}")
-        rti, rti_u = schedule_build.build_realtime(region=region)
-        rti = rti.select(
-            ["UID", "time_transpond", "bus_id", "latitude", "longitude"]
+    if test.output_unlabelled_bulk:
+        logger.info("Exporting unlablled data to file.")
+        unlabelled = unlabelled.to_pandas()
+        unlabelled.to_csv(
+            f"outputs/unlabelled_{test.region}_{test.date}.csv", index=False
         )
-        if trigger == 0:
-            rt = rti.clone()
-            rt_u = rti_u.clone()
-        else:
-            rt = pl.concat([rt, rti], how="vertical_relaxed")
-            rt_u = pl.concat([rt_u, rti_u], how="vertical_relaxed")
-        trigger += 1
-
-    # temp conversion to pandas
-    rt = rt.to_pandas()
-    rt_u = rt_u.to_pandas()
-
-    logger.info("Applying geography labels to realtime (labelled) data")
-    rt = apply_geography_label(rt, bounds, type="realtime")
-
-    logger.info("Diagnostics: realtime coverage by LSOA")
-    rt_lsoa_coverage = bounds_lookup.join(
-        (rt.group_by("LSOA21CD").count()),
-        on="LSOA21CD",
-        how="left",
-    )
-
-    logger.info("Writing realtime (labelled) coverage to file")
-    rt_lsoa_coverage.write_csv(
-        f"data/daily/metrics/rt_lsoa_coverage_{date}.csv"
-    )
-
-    if config["schedules"]["output_unlabelled_bulk"]:
-        # temp bypass unlabelled processing
-        # illustrative output of unlabelled RT rows by LSOA
-        logger.info("Applying geography labels to realtime (UNLABELLED) data")
-        rt_u = apply_geography_label(rt_u, bounds, type="realtime")
-
-        # temp conversion back to polars
-        rt_u = pl.from_pandas(rt_u)
-
-        logger.info("Exporting unlabelled RT data to file")
-        rt_u.write_csv("data/daily/unlabelled_rt.csv")
-
-        logger.info("Diagnostics: realtime (UNLABELLED) coverage by LSOA")
-        rt_u_lsoa_coverage = bounds_lookup.join(
-            (rt_u.group_by("LSOA21CD").count()),
-            on="LSOA21CD",
-            how="left",
-        )
-
-        logger.info("Writing realtime (UNLABELLED) coverage to file")
-        rt_u_lsoa_coverage.write_csv(
-            f"data/daily/metrics/rt_u_lsoa_coverage_{date}.csv"
-        )
-    else:
-        logger.info("Unlabelled data export and analysis bypassed by user")
-
-    logger.info("Writing schedule to file")
-    # only service stops common in RT and TT
-    schedule = (
-        rt[["UID", "time_transpond", "bus_id"]]
-        .join(tt, on="UID", how="inner")
-        .unique()
-    )
-
-    schedule.write_csv(f"data/daily/schedules/schedule_england_{date}.csv")
 
     logger.info("Writing punctuality to file")
-    punc = schedule_build.punctuality_by_lsoa(schedule)
-    punc.write_csv(
-        f"data/daily/metrics/punctuality_by_lsoa_england_{date}.csv"
+    pandas_df = (
+        final_df_script.to_pandas()
+        .sort_values("stop_id")
+        .reset_index(drop=True)
+    )
+    pandas_df.to_csv(
+        f"outputs/punctuality_by_stop_{test.region}_{test.date}.csv",
+        index=False,
     )
 
     logger.info("\n")
     logger.info("-------------------------------")
     logger.info("Schedule Builder jobs completed")
     logger.info("-------------------------------")
+
+# %%

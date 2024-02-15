@@ -1,17 +1,33 @@
+"""File containing functions to use in build_schedules."""
+
 import zipfile
 import os
 import glob
 import pandas as pd
 import polars as pl
-import geopandas as gpd
 from convertbng.util import convert_lonlat
+import logging
 
 
-def deduplicate(df):
-    """Deduplicates realtime BODS data in respect of
+def deduplicate(df: pd.DataFrame) -> pd.DataFrame:
+    """Deduplicate dataframe.
+
+    Deduplicates realtime BODS data in respect of
     available variables to leave only unique pings
     in respect of specified variables at their latest
-    transmission time"""
+    transmission time.
+
+    Parameters
+    ----------
+    df : pandas.DataFrame
+        Dataframe to remove duplicates from.
+
+    Returns
+    -------
+    df : pandas.DataFrame
+        Processed dataframe without duplicates.
+
+    """
     df = df.drop_duplicates(
         [
             "bus_id",
@@ -26,9 +42,17 @@ def deduplicate(df):
     return df
 
 
-def zip_files(to_dir, zip_name):
-    """Zips required GTFS constituent files into folder"""
+def zip_files(to_dir: str, zip_name: str):
+    """Zips required GTFS constituent files into folder.
 
+    Parameters
+    ----------
+    to_dir : str
+        String of path to directory containing GTFS files to zip.
+    zip_name : str
+        File name to save zipped files as.
+
+    """
     # List of .txt files to add to the .zip file
     txt_files = [
         "agency.txt",
@@ -60,26 +84,24 @@ def unzip_GTFS(
     txt_path: str,
     zip_path: str,
     file_name_pattern: str = "timetable.zip",
-    logger=None,  # noqa:E501
+    logger: logging.Logger = None,  # noqa:E501
 ):
-    """Checks for all .txt files in folder.
-    If any are missing, unzips the timetable.zip
+    """Check for all .txt files in folder.
 
-    Params:
+    If any are missing, unzips the timetable.zip.
 
-    txt_path (str): Path to where .txt files located/to unzip to.
+    Parameters
+    ----------
+    txt_path : str
+        Path to where .txt files located/to unzip to.
+    zip_path: str
+        Path to dir where .zip file is located.
+    file_name_pattern : str, optional
+        Suffix of file to unzip defaults 'timetable.zip'.
+    logger : logger.Logger, optional
+        Logger object used to collect info of process.
 
-    zip_path (str): Path to dir where .zip file is located.
-
-    file_name_pattern (str): OPTIONAL suffix of file to unzip,
-            defaults 'timetable.zip'.
-
-    logger: OPTIONAL logger object used to collect info of process.
-
-    Returns:
-
-    Contents of zip folder."""
-
+    """
     txt_files = [
         "agency.txt",
         "calendar.txt",
@@ -112,7 +134,7 @@ def unzip_GTFS(
         if not matching_zip:
             if logger:
                 logger.info("No GTFS zip in directory.")
-            raise ValueError("No {file_name_pattern} in {zip_path}")
+            raise ValueError(f"No {file_name_pattern} in {zip_path}")
 
         # check there is not more than 1 zip file
         if len(matching_zip) > 1:
@@ -127,7 +149,20 @@ def unzip_GTFS(
             zip_ref.extractall(txt_path)
 
 
-def convert_SINGLE_datetime_to_unix(date=None):
+def convert_SINGLE_datetime_to_unix(date: str = None) -> pd.Timestamp:
+    """Convert a single date to UNIX format.
+
+    Parameters
+    ----------
+    date : str
+        Date in which to convert to UNIX.
+
+    Returns
+    -------
+    timestamp : pd.Timestamp
+        Timestamp at mightnight 00:00:00 of the provided date.
+
+    """
     timestamp = (
         pd.to_datetime(
             str(date) + " " + "00:00:00", format="%Y%m%d %H:%M:%S"
@@ -144,9 +179,24 @@ def convert_SINGLE_datetime_to_unix(date=None):
     return timestamp
 
 
-def convert_string_time_to_unix(df=None, time_column=None):
-    """Add additional column: unix timestamps to date string"""
+def convert_string_time_to_unix(
+    df: pl.DataFrame = None, time_column: str = None
+) -> pl.DataFrame:
+    """Add additional column: unix timestamps to date string.
 
+    Parameters
+    ----------
+    df : polars.DataFrame
+        Dataframe containing timetable data.
+    time_column : str
+        Name of columns containing string fomat time.
+
+    Returns
+    -------
+    df : polars.DataFrame
+        Dataframe containing new column with UNIX format time.
+
+    """
     # TODO: refactor into one
     df = df.with_columns(
         pl.format("{} {}", "timetable_date", time_column).alias(
@@ -169,9 +219,27 @@ def convert_string_time_to_unix(df=None, time_column=None):
     return df
 
 
-def convert_unix_to_time_string(df=None, unix_column=None):
-    """Converts column of unix timestamps to time string
-    e.g. 1698998880 -> 08:08:00"""
+def convert_unix_to_time_string(
+    df: pl.DataFrame = None, unix_column: str = None
+) -> pl.DataFrame:
+    """Convert column of unix timestamps to time string.
+
+    Convert unix column containing a timetstamp to a string format
+    e.g. 1698998880 -> 08:08:00.
+
+    Parameters
+    ----------
+    df : polars.DataFrame
+        Dataframe containing UNIX time column.
+    unix_column : str
+        Name of column which contains UNIX values.
+
+    Returns
+    -------
+    df : polars.DataFrame
+        Dataframe with new column in string format.
+
+    """
     df = df.with_columns(
         pl.from_epoch(pl.col(unix_column), time_unit="s").alias(
             f"dt_{unix_column}"
@@ -190,45 +258,40 @@ def convert_unix_to_time_string(df=None, unix_column=None):
     return df
 
 
-def build_daily_stops_file(date):
-    dir = "data/daily/timetable"
-    regions = [
-        "EastAnglia",
-        "EastMidlands",
-        "NorthEast",
-        "NorthWest",
-        "SouthEast",
-        "SouthWest",
-        "WestMidlands",
-        "Yorkshire",
-    ]
-
-    df = pd.DataFrame()
-
-    for region in regions:
-        reg_stops = pd.read_csv(f"{dir}/{region}/{date}/stops.txt")
-        df = pd.concat([df, reg_stops])
-
-    df = df.drop_duplicates(subset="stop_id")
-    return df
-
-
 def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
-    # import NapTAN data
+    """Read in gb_stops file and outouts as DataFrame.
 
+    Parameters
+    ----------
+    output : str
+        Output type, polars or pandas DataFrame. (Defaults "polars").
+
+    Returns
+    -------
+    stops : polars or pandas DataFrame
+        Dataframe containing stop data.
+
+    """
+    # import NapTAN data
     stops = pl.read_csv(
-        "data/daily/gb_stops.csv",
+        "data/resources/gb_stops.csv",
         ignore_errors=True,
         dtypes={"stop_id": pl.Utf8},  # noqa: E501
     )
-    stops = stops.filter(pl.col("Status") == "active")
+
     eastings = stops["Easting"].to_list()
     northings = stops["Northing"].to_list()
     lon, lat = convert_lonlat(eastings, northings)
 
-    # TODO: fill nan rather than overwrite whole columns
-    stops.with_columns(pl.Series(name="Latitude", values=lat))
-    stops.with_columns(pl.Series(name="Longitude", values=lon))
+    stops = stops.with_columns(pl.Series(name="LatitudeNew", values=lat))
+    stops = stops.with_columns(pl.Series(name="LongitudeNew", values=lon))
+    stops = stops.with_columns(
+        [
+            (pl.col("Latitude").fill_null(pl.col("LatitudeNew"))),
+            (pl.col("Longitude").fill_null(pl.col("LongitudeNew"))),
+        ]
+    )
+
     stops = stops[["ATCOCode", "Latitude", "Longitude"]]
     stops.columns = ["stop_id", "stop_lat", "stop_lon"]
 
@@ -238,30 +301,31 @@ def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
     return stops
 
 
-def apply_geography_label(
-    df: pd.DataFrame,
-    bounds: gpd.GeoDataFrame,
-    type: str = "timetable",
-    output: str = "polars",
-) -> pl.DataFrame | pd.DataFrame:
-    if type == "timetable":
-        lat = "stop_lat"
-        lon = "stop_lon"
+def polars_robust_load_csv(filepath: str, dtypes: dict = None) -> pl.DataFrame:
+    """Load csv using polars with resilient settings.
+
+    Prameters
+    ---------
+    filepath : str
+        Filepath to csv to load.
+    dtypes : dict, optional
+        Dictionary of columns and dtypes to load as.
+
+    Returns
+    -------
+    df : polars.DataFrame
+        Dataframe of csv from filepath.
+
+    """
+    if dict:
+        df = pl.read_csv(
+            filepath,
+            ignore_errors=True,
+            infer_schema_length=None,
+            dtypes=dtypes,
+        )
     else:
-        lat = "latitude"
-        lon = "longitude"
-
-    df["geometry"] = gpd.points_from_xy(df[lon], df[lat])  # noqa: E501
-    df = gpd.GeoDataFrame(df)
-    df = df.set_crs("4326")
-
-    df_labelled = df.sjoin(bounds, how="left", predicate="within")
-    # remove geometry to avoid polars conflict (pyarrow numpy issue)
-    df_labelled = df_labelled.drop(columns="geometry")
-
-    if output == "pandas":
-        df_labelled = pd.DataFrame(df_labelled)
-    else:
-        df_labelled = pl.from_pandas(pd.DataFrame(df_labelled))
-
-    return df_labelled
+        df = pl.read_csv(
+            filepath, ignore_errors=True, infer_schema_length=None
+        )
+    return df

@@ -1,0 +1,7 @@
+region = 'north_east'
+date = '20240215'
+time_from = 7
+time_to = 10
+partial_timetable = false
+route_types = [3]
+output_unlabelled_bulk = true
