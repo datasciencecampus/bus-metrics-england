@@ -438,7 +438,7 @@ if __name__ == "__main__":
         .reset_index(drop=True)
     )
     pandas_df.to_csv(
-        f"outputs/punctuality_by_stop_{test.region}_{test.date}.csv",
+        f"data/stop_level_punctuality/punctuality_by_stop_{test.region}_{test.date}.csv",  # noqa: E501
         index=False,
     )
 
