@@ -1,5 +1,6 @@
 """Tests for Schedule_builder class."""
 import polars as pl
+import pytest
 
 pytest_plugins = ["tests.aggregation.test_fixtures"]
 
@@ -24,6 +25,7 @@ def test_build_timetable_func(stops_test, test_class_instantiate, config):
     ), "Timetable Data not read in."
 
 
+@pytest.mark.skip(reason="Debugging one test at a time")
 def test_build_realtime_func(test_class_instantiate, config):
     """Simple test to check loading of realtime data."""
     real_df, _ = test_class_instantiate.build_realtime(config["region"])

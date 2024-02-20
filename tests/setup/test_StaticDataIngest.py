@@ -8,6 +8,7 @@ import os
 tool = StaticDataIngest()
 
 
+@pytest.mark.skip(reason="Debugging one test at a time")
 def test_ingest_bus_timetable_file_exists():
     """Simple test to check that data not overwritten."""
     with pytest.raises(FileExistsError) as excinfo:

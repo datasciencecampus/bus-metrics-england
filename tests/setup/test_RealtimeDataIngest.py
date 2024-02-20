@@ -5,9 +5,11 @@ from dotenv import load_dotenv
 from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from google.transit import gtfs_realtime_pb2
 from google.protobuf import text_format
+import os
 
 load_dotenv()
 tool = RealtimeDataIngest()
+BODS_MSG_PATH = os.path.join("tests", "data", "BODS_API_message")
 
 
 def test_error_API_failure():
@@ -30,8 +32,6 @@ def test_csv_storage_success(tmp_path):
     # TODO: check multiple warnings raised
     temp_file = tmp_path / "test.csv"
     # inject test BODS message
-    tool.message = _parse_protobuf_message_entity(
-        "tests/data/BODS_API_message"
-    )
+    tool.message = _parse_protobuf_message_entity(BODS_MSG_PATH)
     tool.parse_realtime(filename=temp_file)
     assert temp_file.is_file()
