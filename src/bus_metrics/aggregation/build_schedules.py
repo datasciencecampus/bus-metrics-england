@@ -223,7 +223,7 @@ class Schedule_Builder:
 
     def _split_realtime_data(
         self, df: pl.DataFrame
-    ) -> (pl.DataFrame, pl.DataFrame):  # noqa: E501
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:  # noqa: E501
         """Collect and concatenates all realtime data for specified day.
 
         Parameters
@@ -298,7 +298,7 @@ class Schedule_Builder:
 
         return df
 
-    def build_realtime(self, region: str) -> (pl.DataFrame, pl.DataFrame):
+    def build_realtime(self, region: str) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Process realtime for given region and day.
 
         Apply unique identifier to each service stop and
