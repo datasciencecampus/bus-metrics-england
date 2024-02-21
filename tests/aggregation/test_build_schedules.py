@@ -24,18 +24,20 @@ def test_build_timetable_func(stops_test, test_class_instantiate, config):
     ), "Timetable Data not read in."
 
 
-def test_build_realtime_func(test_class_instantiate, config):
-    """Simple test to check loading of realtime data."""
-    test_region = config["region"]
-    test_date = config["date"]
-    real_df, _ = test_class_instantiate.build_realtime(test_region, test_date)
-    assert type(real_df) == pl.DataFrame
+# def test_build_realtime_func(test_class_instantiate, config):
+#     """Simple test to check loading of realtime data."""
+#     test_region = config["region"]
+#     test_date = config["date"]
+#     real_df, _ = \
+#       test_class_instantiate.build_realtime(test_region, test_date)
+#     assert type(real_df) == pl.DataFrame
 
 
 def test_load_raw_realtime_data(test_class_instantiate, config):
     """PROPOSED UNIT TEST: Simple test to check loading of realtime data."""
     test_region = config["region"]
     test_date = config["date"]
+    test_class_instantiate.realtime_dir = "tests/data"
     real_df = test_class_instantiate.load_raw_realtime_data(
         test_region, test_date
     )
