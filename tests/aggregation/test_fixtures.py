@@ -85,7 +85,7 @@ def test_real_path(tmp_path_factory):
             fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
             rtool.parse_realtime(
                 filename=os.path.join(
-                    real_path, f"north_east_{date}-{fileTimeStamp}.csv"
+                    real_path, f"north_east_{fileTimeStamp}.csv"
                 )
             )
             time.sleep(10)
