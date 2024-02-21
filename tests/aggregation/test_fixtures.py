@@ -4,9 +4,9 @@
 import os
 import pytest
 import time
-from bus_metrics.setup.ingest_static_data import StaticDataIngest
-from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
-from bus_metrics.aggregation.build_schedules import Schedule_Builder
+from src.bus_metrics.setup.ingest_static_data import StaticDataIngest
+from src.bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
+from src.bus_metrics.aggregation.build_schedules import Schedule_Builder
 from datetime import datetime
 
 stool = StaticDataIngest()
@@ -56,9 +56,9 @@ def test_gtfs_path(tmp_path_factory):
     """
     gtfs_path = os.path.join(tmp_path_factory.getbasetemp(), "gtfs")
 
-    if not os.path.exists(gtfs_path):
-        # If it doesn't exist, create the folder
-        os.makedirs(gtfs_path)
+    # if not os.path.exists(gtfs_path):
+    #     # If it doesn't exist, create the folder
+    #     os.makedirs(gtfs_path)
 
     # set download path
     stool.zip_fp_root = os.path.join(gtfs_path)
@@ -83,9 +83,9 @@ def test_real_path(tmp_path_factory):
     """
     real_path = os.path.join(tmp_path_factory.getbasetemp(), "real")
 
-    if not os.path.exists(real_path):
-        # If it doesn't exist, create the folder
-        os.makedirs(real_path)
+    # if not os.path.exists(real_path):
+    #     # If it doesn't exist, create the folder
+    #     os.makedirs(real_path)
 
     scriptStartTime = datetime.now()
     scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())

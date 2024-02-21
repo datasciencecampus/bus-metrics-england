@@ -1,6 +1,6 @@
 """Initial pipeline to obtain project resources/data."""
-from bus_metrics.setup.ingest_static_data import StaticDataIngest
-from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
+from src.bus_metrics.setup.ingest_static_data import StaticDataIngest
+from src.bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from datetime import datetime
 import logging
 import os

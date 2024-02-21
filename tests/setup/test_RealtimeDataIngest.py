@@ -2,7 +2,7 @@
 
 import pytest
 from dotenv import load_dotenv
-from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
+from src.bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from google.transit import gtfs_realtime_pb2
 from google.protobuf import text_format
 import os
