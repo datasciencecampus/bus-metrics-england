@@ -13,6 +13,7 @@ from src.bus_metrics.aggregation.preprocessing import (
     convert_string_time_to_unix,
 )
 import polars as pl
+import argparse
 
 
 class Schedule_Builder:
@@ -45,8 +46,8 @@ class Schedule_Builder:
 
     def __init__(
         self,
+        date: str = datetime.today().strftime("%Y%m%d"),
         region: str = "north_east",
-        date: str = "20240212",
         time_from: float = 7.0,
         time_to: float = 10.0,
         partial_timetable: bool = False,
@@ -61,15 +62,15 @@ class Schedule_Builder:
         self.partial_timetable = partial_timetable
         self.route_types = route_types
         self.output_unlabelled_bulk = output_unlabelled_bulk
-        self.weekday = datetime.strptime(date, "%Y%m%d").strftime("%A").lower()
         self.logger = logger
         self.timetable_dir = "data/timetable"
         self.realtime_dir = "data/realtime"
 
-    def _load_raw_timetable_data(
+    def load_raw_timetable_data(
         self,
         stops: pl.DataFrame,
         region: str = None,
+        date: str = None,
     ) -> pl.DataFrame:
         """Load timetable data.
 
@@ -83,8 +84,8 @@ class Schedule_Builder:
             NAPTAN stops data.
         region : str, optional
             Region name.
-        logger : logger
-            Logging instance to capture progress messages.
+        date : str, optional
+            Date in string format %Y%m%d.
 
         Returns
         -------
@@ -95,12 +96,16 @@ class Schedule_Builder:
         if region is None:
             region = self.region
 
+        if date is None:
+            date = self.date
+
+        weekday = datetime.strptime(date, "%Y%m%d").strftime("%A").lower()
         from_dir = self.timetable_dir
 
         unzip_GTFS(
             txt_path=from_dir,
             zip_path=from_dir,
-            file_name_pattern=f"{region}_{self.date}.zip",
+            file_name_pattern=f"{region}_{date}.zip",
             logger=self.logger,
         )
 
@@ -121,7 +126,7 @@ class Schedule_Builder:
         )
 
         calendar_dates = calendar_dates.filter(
-            pl.col("date").cast(pl.Utf8) == self.date
+            pl.col("date").cast(pl.Utf8) == date
         )
         exception_drops = calendar_dates.filter(
             pl.col("exception_type") == 2
@@ -136,7 +141,7 @@ class Schedule_Builder:
         routes = routes.filter(pl.col("route_type").is_in(self.route_types))
 
         # filter to today's activity plus added exceptions
-        active_services = calendar.filter(pl.col(self.weekday) == 1)[
+        active_services = calendar.filter(pl.col(weekday) == 1)[
             "service_id"
         ].to_list()
         active_services.extend(exception_adds)
@@ -157,7 +162,7 @@ class Schedule_Builder:
         )
         # add timetable date column
         service_stops = service_stops.with_columns(
-            pl.lit(self.date).alias("timetable_date")
+            pl.lit(date).alias("timetable_date")
         )
         # drop all times beyond 24 hour clock
         # TODO: can these be handled better?
@@ -171,13 +176,15 @@ class Schedule_Builder:
 
         return service_stops
 
-    def _load_raw_realtime_data(self, region=None) -> pl.DataFrame:
+    def load_raw_realtime_data(self, region=None, date=None) -> pl.DataFrame:
         """Collect all realtime data for individual day.
 
         Parameters
         ----------
         region : str, optional
             Region name.
+        date : str, optional
+            Date in string format %Y%m%d.
 
         Returns
         -------
@@ -188,10 +195,13 @@ class Schedule_Builder:
         if region is None:
             region = self.region
 
+        if date is None:
+            date = self.date
+
         dir = self.realtime_dir
 
         # collate all realtime ingests to single dataframe
-        tables = os.path.join(dir, f"{region}_{self.date}*.csv")
+        tables = os.path.join(dir, f"{region}_{date}*.csv")
         tables = glob.glob(tables)
         df_list = [
             polars_robust_load_csv(table, dtypes={"route_id": pl.Utf8})
@@ -201,7 +211,7 @@ class Schedule_Builder:
 
         return df
 
-    def _split_realtime_data(
+    def split_realtime_data(
         self, df: pl.DataFrame
     ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Collect and concatenates all realtime data for specified day.
@@ -230,7 +240,7 @@ class Schedule_Builder:
         return labelled_real, unlabelled_real
 
     def build_timetable(
-        self, stops: pl.DataFrame, region: str
+        self, stops: pl.DataFrame, region: str, date: str
     ) -> pl.DataFrame:
         """Load and create day timetable.
 
@@ -244,6 +254,8 @@ class Schedule_Builder:
             Dataframe containing all stops information.
         region: str
             Region name to process.
+        date : str
+            Date in string format %Y%m%d.
 
         Returns
         -------
@@ -251,11 +263,11 @@ class Schedule_Builder:
             Datframe of region timetable.
 
         """
-        df = self._load_raw_timetable_data(stops, region)
+        df = self.load_raw_timetable_data(stops, region)
 
         # slicing timetable with 30 minute buffers either side of
         # realtime window
-        datestamp = convert_SINGLE_datetime_to_unix(date=self.date)
+        datestamp = convert_SINGLE_datetime_to_unix(date=date)
         tt_time_from = int(datestamp + (self.time_from * 60 * 60) - 1800)
         tt_time_to = int(datestamp + (self.time_to * 60 * 60) + 1800)
         if self.partial_timetable:
@@ -278,7 +290,9 @@ class Schedule_Builder:
 
         return df
 
-    def build_realtime(self, region: str) -> tuple[pl.DataFrame, pl.DataFrame]:
+    def build_realtime(
+        self, region: str, date: str
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Process realtime for given region and day.
 
         Apply unique identifier to each service stop and
@@ -288,6 +302,8 @@ class Schedule_Builder:
         ----------
         region : str
             Region name of real time data to ingest and process.
+        date : str
+            Date in string format %Y%m%d.
 
         Returns
         -------
@@ -299,8 +315,12 @@ class Schedule_Builder:
         """
         if region is None:
             region = self.region
-        df = self._load_raw_realtime_data(region)
-        df, unlabelled = self._split_realtime_data(df)
+
+        if date is None:
+            date = self.date
+
+        df = self.load_raw_realtime_data(region, date)
+        df, unlabelled = self.split_realtime_data(df)
         df = df.sort(
             ["trip_id", "current_stop", "time_transpond", "time_ingest"]
         )
@@ -384,6 +404,18 @@ if __name__ == "__main__":
     # load config toml
     config = toml.load("src/bus_metrics/aggregation/config.toml")
 
+    parser = argparse.ArgumentParser()
+    parser.add_argument(
+        "-d",
+        "--date",
+        required=False,
+        default=datetime.today().strftime("%Y%m%d"),
+        type=str,
+    )
+    args = vars(parser.parse_args())
+
+    date = args["date"]
+
     # load stops file
     stops = build_stops()
 
@@ -393,20 +425,20 @@ if __name__ == "__main__":
     )
 
     # could this be in a loop for a larger england downoad?
-    test_tt = builder.build_timetable(stops=stops, region=builder.region)
+    tt = builder.build_timetable(stops=stops, region=builder.region, date=date)
 
     # Method returns unlabelled, but not ingested
-    test_rt, unlabelled = builder.build_realtime(region=builder.region)
+    rt, unlabelled = builder.build_realtime(region=builder.region, date=date)
 
     final_df_script = builder.punctuality_by_stop(
-        realtime_df=test_rt, timetable_df=test_tt
+        realtime_df=rt, timetable_df=tt
     )
 
     if builder.output_unlabelled_bulk:
         logger.info("Exporting unlablled data to file.")
         unlabelled = unlabelled.to_pandas()
         unlabelled.to_csv(
-            f"outputs/unlabelled_{builder.region}_{builder.date}.csv",
+            f"outputs/unlabelled_{builder.region}_{date}.csv",
             index=False,
         )
 
@@ -417,7 +449,7 @@ if __name__ == "__main__":
         .reset_index(drop=True)
     )
     pandas_df.to_csv(
-        f"data/stop_level_punctuality/punctuality_by_stop_{builder.region}_{builder.date}.csv",  # noqa: E501
+        f"data/stop_level_punctuality/punctuality_by_stop_{builder.region}_{date}.csv",  # noqa: E501
         index=False,
     )
 
