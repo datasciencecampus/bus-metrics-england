@@ -45,26 +45,6 @@ class Schedule_Builder:
 
     def __init__(
         self,
-        # tt_regions: list = [
-        #     "east_anglia",
-        #     "east_midlands",
-        #     "north_east",
-        #     "north_west",
-        #     "south_East",
-        #     "south_west",
-        #     "west_midlands",
-        #     "yorkshire",
-        # ],
-        # rt_regions: list = [
-        #     "east_anglia",
-        #     "east_midlands",
-        #     "north_east",
-        #     "north_west",
-        #     "south_East",
-        #     "south_west",
-        #     "west_midlands",
-        #     "yorkshire",
-        # ],
         region: str = "north_east",
         date: str = "20240212",
         time_from: float = 7.0,
@@ -223,7 +203,7 @@ class Schedule_Builder:
 
     def _split_realtime_data(
         self, df: pl.DataFrame
-    ) -> tuple[pl.DataFrame, pl.DataFrame]:  # noqa: E501
+    ) -> tuple[pl.DataFrame, pl.DataFrame]:
         """Collect and concatenates all realtime data for specified day.
 
         Parameters
@@ -241,7 +221,7 @@ class Schedule_Builder:
         """
         labelled_real = df.filter(
             (pl.col("trip_id").is_not_null())
-            & (pl.col("route_id").is_not_null())  # noqa: E501
+            & (pl.col("route_id").is_not_null())
         )
         unlabelled_real = df.filter(
             (pl.col("trip_id").is_null()) & (pl.col("route_id").is_null())
@@ -387,8 +367,6 @@ class Schedule_Builder:
         return df
 
 
-# %%
-
 if __name__ == "__main__":
     # define session_id that will be used for log file and feedback
     session_name = (
@@ -410,25 +388,26 @@ if __name__ == "__main__":
     stops = build_stops()
 
     # Instantiate class
-    test = Schedule_Builder(
+    builder = Schedule_Builder(
         **config,
-    )  # logger=logger)
+    )
 
     # could this be in a loop for a larger england downoad?
-    test_tt = test.build_timetable(stops=stops, region=test.region)
+    test_tt = builder.build_timetable(stops=stops, region=builder.region)
 
     # Method returns unlabelled, but not ingested
-    test_rt, unlabelled = test.build_realtime(region=test.region)
+    test_rt, unlabelled = builder.build_realtime(region=builder.region)
 
-    final_df_script = test.punctuality_by_stop(
+    final_df_script = builder.punctuality_by_stop(
         realtime_df=test_rt, timetable_df=test_tt
     )
 
-    if test.output_unlabelled_bulk:
+    if builder.output_unlabelled_bulk:
         logger.info("Exporting unlablled data to file.")
         unlabelled = unlabelled.to_pandas()
         unlabelled.to_csv(
-            f"outputs/unlabelled_{test.region}_{test.date}.csv", index=False
+            f"outputs/unlabelled_{builder.region}_{builder.date}.csv",
+            index=False,
         )
 
     logger.info("Writing punctuality to file")
@@ -438,7 +417,7 @@ if __name__ == "__main__":
         .reset_index(drop=True)
     )
     pandas_df.to_csv(
-        f"data/stop_level_punctuality/punctuality_by_stop_{test.region}_{test.date}.csv",  # noqa: E501
+        f"data/stop_level_punctuality/punctuality_by_stop_{builder.region}_{builder.date}.csv",  # noqa: E501
         index=False,
     )
 
@@ -446,5 +425,3 @@ if __name__ == "__main__":
     logger.info("-------------------------------")
     logger.info("Schedule Builder jobs completed")
     logger.info("-------------------------------")
-
-# %%
