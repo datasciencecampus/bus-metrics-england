@@ -377,10 +377,10 @@ class Schedule_Builder:
             .otherwise(0)
             .alias("punctual")
         )
-        df = df.group_by("stop_id").agg(
+        df = df.group_by(["stop_id", "stop_lat", "stop_lon"]).agg(
             [
-                pl.count("punctual").alias("num_service_stops"),
-                pl.mean("punctual").alias("avg_punctuality"),
+                pl.count("punctual").alias("service_stops"),
+                pl.mean("punctual").alias("punctuality_rate"),
             ]
         )
 
