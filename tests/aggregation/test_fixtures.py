@@ -54,13 +54,7 @@ def test_gtfs_path(tmp_path_factory):
         Path to the temporary folder which contains GTFS.
 
     """
-    gtfs_path = os.path.join(tmp_path_factory.getbasetemp(), "gtfs")
-
-    # if not os.path.exists(gtfs_path):
-    #     # If it doesn't exist, create the folder
-    #     os.makedirs(gtfs_path)
-
-    # set download path
+    gtfs_path = tmp_path_factory.mktemp("gtfs")
     stool.zip_fp_root = os.path.join(gtfs_path)
 
     try:
@@ -81,12 +75,7 @@ def test_real_path(tmp_path_factory):
         Path to the temporary folder which contains GTFS.
 
     """
-    real_path = os.path.join(tmp_path_factory.getbasetemp(), "real")
-
-    # if not os.path.exists(real_path):
-    #     # If it doesn't exist, create the folder
-    #     os.makedirs(real_path)
-
+    real_path = tmp_path_factory.mktemp("real")
     scriptStartTime = datetime.now()
     scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())
 

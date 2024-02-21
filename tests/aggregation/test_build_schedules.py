@@ -1,6 +1,5 @@
 """Tests for Schedule_builder class."""
 import polars as pl
-import pytest
 
 pytest_plugins = ["tests.aggregation.test_fixtures"]
 
@@ -15,18 +14,19 @@ def test_build_timetable_func(stops_test, test_class_instantiate, config):
 
     test_stops = test_stops[["ATCOCode", "Latitude", "Longitude"]]
     test_stops.columns = ["stop_id", "stop_lat", "stop_lon"]
-
     test_region = config["region"]
+    test_date = config["date"]
     timetable_df = test_class_instantiate.build_timetable(
-        stops=test_stops, region=test_region
+        stops=test_stops, region=test_region, date=test_date
     )
     assert (type(timetable_df) == pl.DataFrame) & (
         len(timetable_df) > 1
     ), "Timetable Data not read in."
 
 
-@pytest.mark.skip(reason="Debugging one test at a time")
 def test_build_realtime_func(test_class_instantiate, config):
     """Simple test to check loading of realtime data."""
-    real_df, _ = test_class_instantiate.build_realtime(config["region"])
+    test_region = config["region"]
+    test_date = config["date"]
+    real_df, _ = test_class_instantiate.build_realtime(test_region, test_date)
     assert type(real_df) == pl.DataFrame
