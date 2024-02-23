@@ -1,8 +1,13 @@
 """Tests for bus_metric/aggregation/preproccessing file."""
 import os
 import pytest
+import polars as pl
 from datetime import datetime
-from src.bus_metrics.aggregation.preprocessing import unzip_GTFS
+from src.bus_metrics.aggregation.preprocessing import (
+    unzip_GTFS,
+    polars_robust_load_csv,
+    convert_unix_to_time_string,
+)
 
 pytest_plugins = ["tests.aggregation.test_fixtures"]
 
@@ -79,3 +84,56 @@ def test_no_zips(tmp_path):
     """
     with pytest.raises(ValueError, match="No"):
         unzip_GTFS(tmp_path, tmp_path, ".zip", None)
+
+
+def test_robust_load_csv():
+    """Simple test to check loading of csv with polars."""
+    # Test case when dtypes is None
+    test_csv = "tests/data/north_east_20240221-SAMPLE.csv"
+    df = polars_robust_load_csv(test_csv)
+    assert isinstance(df, pl.DataFrame)
+    assert df.shape == (6, 10)
+
+
+def test_polars_dtypes():
+    """Test to check assignment of dtype to dataframe."""
+    # Test case when dtypes is Specified
+    test_csv = "tests/data/north_east_20240221-SAMPLE.csv"
+    df = polars_robust_load_csv(test_csv, dtypes={"route_id": pl.Utf8})
+    assert isinstance(df, pl.DataFrame)
+    assert df["route_id"].dtype == pl.Utf8
+
+
+def test_convert_unix_to_time_string():
+    """Test to check conversion of unix timestamp to string."""
+    # Read in sample csv
+    sample_dataframe = pl.read_csv("tests/data/north_east_20240221-SAMPLE.csv")
+
+    # Apply function to the sample DataFrame
+    df_result = convert_unix_to_time_string(
+        sample_dataframe, unix_column="time_transpond"
+    )
+
+    # Check if the new column is added
+    assert "dt_time_transpond" in df_result.columns
+
+    # Check if the datatype of the new column is time
+    assert df_result["dt_time_transpond"].dtype == pl.Time
+
+    # Assign expected values
+    expected_values = [
+        "11:37:06",
+        "11:37:16",
+        "11:37:16",
+        "11:36:51",
+        "11:37:12",
+        "11:37:06",
+    ]
+
+    # Check if the conversion is accurate
+    assert (
+        df_result["dt_time_transpond"]
+        .apply(lambda x: x.strftime("%H:%M:%S"))
+        .to_list()
+        == expected_values
+    )
