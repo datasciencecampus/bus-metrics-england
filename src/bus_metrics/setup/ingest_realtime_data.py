@@ -80,10 +80,26 @@ class RealtimeDataIngest:
         num_buses = len(packet)
 
         if filename is None:
-            fileTimeStamp = datetime.now().strftime("%Y-%m-%d-%H:%M:%S")
+            fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
             filename = f"{self.store_data_fp}_{fileTimeStamp}.csv"
 
         with open(filename, "a", newline="") as csv_file:
+            csv_obj = writer(csv_file)
+            csv_obj.writerow(
+                [
+                    "time_ingest",
+                    "time_transpond",
+                    "bus_id",
+                    "trip_id",
+                    "route_id",
+                    "current_stop",
+                    "latitude",
+                    "longitude",
+                    "bearing",
+                    "journey_date",
+                ]
+            )
+            date = datetime.now().strftime("%Y%m%d")
 
             # iterate over each bus in 'packet'
             for bus in np.arange(0, num_buses):
@@ -114,9 +130,9 @@ class RealtimeDataIngest:
                         latitude,
                         longitude,
                         bearing,
+                        date,
                     ]
 
-                    csv_obj = writer(csv_file)
                     csv_obj.writerow(bus_update)
 
                 else:

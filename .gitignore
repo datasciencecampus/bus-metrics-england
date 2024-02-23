@@ -33,6 +33,7 @@ config.py
 *.odt
 *.ods
 *.odp
+*.txt
 
 # images files
 *.png

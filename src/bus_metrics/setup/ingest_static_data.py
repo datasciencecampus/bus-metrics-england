@@ -203,7 +203,7 @@ class StaticDataIngest:
             When timetable data already exists at given filepath
 
         """
-        date = str(datetime.now().date())
+        date = datetime.now().date().strftime("%Y%m%d")
         if region is None:
             url = f"{self.timetable_url_prefix}/{self.region.lower()}"
             filename = f"{self.zip_fp_root}/{self.region.lower()}_{date}.zip"
