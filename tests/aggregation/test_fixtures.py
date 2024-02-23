@@ -4,9 +4,9 @@
 import os
 import pytest
 import time
-from bus_metrics.setup.ingest_static_data import StaticDataIngest
-from bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
-from bus_metrics.aggregation.build_schedules import Schedule_Builder
+from src.bus_metrics.setup.ingest_static_data import StaticDataIngest
+from src.bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
+from src.bus_metrics.aggregation.build_schedules import Schedule_Builder
 from datetime import datetime
 
 stool = StaticDataIngest()
@@ -54,13 +54,7 @@ def test_gtfs_path(tmp_path_factory):
         Path to the temporary folder which contains GTFS.
 
     """
-    gtfs_path = os.path.join(tmp_path_factory.getbasetemp(), "gtfs")
-
-    if not os.path.exists(gtfs_path):
-        # If it doesn't exist, create the folder
-        os.makedirs(gtfs_path)
-
-    # set download path
+    gtfs_path = tmp_path_factory.mktemp("gtfs")
     stool.zip_fp_root = os.path.join(gtfs_path)
 
     try:
@@ -81,12 +75,7 @@ def test_real_path(tmp_path_factory):
         Path to the temporary folder which contains GTFS.
 
     """
-    real_path = os.path.join(tmp_path_factory.getbasetemp(), "real")
-
-    if not os.path.exists(real_path):
-        # If it doesn't exist, create the folder
-        os.makedirs(real_path)
-
+    real_path = tmp_path_factory.mktemp("real")
     scriptStartTime = datetime.now()
     scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())
 
@@ -96,7 +85,7 @@ def test_real_path(tmp_path_factory):
             fileTimeStamp = datetime.now().strftime("%Y%m%d-%H:%M:%S")
             rtool.parse_realtime(
                 filename=os.path.join(
-                    real_path, f"north_east_{date}-{fileTimeStamp}.csv"
+                    real_path, f"north_east_{fileTimeStamp}.csv"
                 )
             )
             time.sleep(10)

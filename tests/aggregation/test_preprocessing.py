@@ -2,7 +2,7 @@
 import os
 import pytest
 from datetime import datetime
-from bus_metrics.aggregation.preprocessing import unzip_GTFS
+from src.bus_metrics.aggregation.preprocessing import unzip_GTFS
 
 pytest_plugins = ["tests.aggregation.test_fixtures"]
 
