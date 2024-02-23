@@ -12,12 +12,12 @@ tool = RealtimeDataIngest()
 BODS_MSG_PATH = os.path.join("tests", "data", "BODS_API_message")
 
 
-def test_error_API_failure(rt_tool):
+def test_error_API_failure():
     """Simple test to check raise error if API key faulty."""
     # TODO: check multiple warnings raised
-    rt_tool.api_key = "faulty_api_key"  # pragma: allowlist secret
+    tool.api_key = "faulty_api_key"  # pragma: allowlist secret
     with pytest.raises(AttributeError) as excinfo:
-        rt_tool._api_call()
+        tool._api_call()
     assert type(excinfo.value) == AttributeError
 
 
@@ -27,7 +27,7 @@ def _parse_protobuf_message_entity(file_path):
         return text_format.Parse(f.read(), gtfs_realtime_pb2.FeedMessage())
 
 
-def test_csv_storage_success(rt_tool, tmp_path):
+def test_csv_storage_success(tmp_path):
     """Simple test to check that csv is written."""
     # TODO: check multiple warnings raised
     temp_file = tmp_path / "test.csv"

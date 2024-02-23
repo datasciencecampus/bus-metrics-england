@@ -9,7 +9,7 @@ tool = StaticDataIngest()
 TESTS_DATA_PATH = os.path.join("tests", "data")
 
 
-def test_ingest_bus_timetable_file_exists(static_tool):
+def test_ingest_bus_timetable_file_exists():
     """Simple test to check that data not overwritten."""
     with pytest.raises(FileExistsError) as excinfo:
         date = datetime.now().strftime("%Y%m%d")
