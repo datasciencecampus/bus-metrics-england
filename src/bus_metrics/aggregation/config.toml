@@ -1,0 +1,6 @@
+region = 'north_east'
+time_from = 7
+time_to = 10
+partial_timetable = false
+route_types = [3]
+output_unlabelled_bulk = true
