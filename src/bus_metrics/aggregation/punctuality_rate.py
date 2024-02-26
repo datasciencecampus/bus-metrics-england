@@ -126,7 +126,7 @@ class AggregationTool:
             and punctuality rate aggregated by geography.
 
         """
-        date_time = datetime.now().strftime("%Y%m%d")
+        date_time = datetime.now().strftime("%Y%m%d-%H%M%S")
         df = self.merge_geographies_with_stop_punctuality()
         df = self._reaggregate_punctuality(df)
         df.to_csv(f"{self.outdir}/{self.geography}_{date_time}.csv")

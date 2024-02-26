@@ -2,6 +2,7 @@
 
 import pytest
 import pandas as pd
+from datetime import datetime
 from src.bus_metrics.aggregation.punctuality_rate import AggregationTool
 
 
@@ -72,7 +73,8 @@ def test_punctuality_by_geography(aggregation_tool, mocker, tmp_path):
     """Test correct data format returned and csv stored."""
     aggregation_tool.outdir = tmp_path
     aggregation_tool.geography = "lsoa"
-    temp_file = tmp_path / f"{aggregation_tool.geography}.csv"
+    date = datetime.now().strftime("%Y%m%d-%H%M%S")
+    temp_file = tmp_path / f"{aggregation_tool.geography}_{date}.csv"
     mocker.patch.object(
         aggregation_tool,
         "merge_geographies_with_stop_punctuality",
