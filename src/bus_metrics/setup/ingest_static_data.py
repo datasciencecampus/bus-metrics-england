@@ -137,7 +137,7 @@ class StaticDataIngest:
 
     def ingest_data_from_geoportal(
         self, url: str = None, filename: str = None
-    ) -> None:
+    ) -> gpd.GeoDataFrame:
         """Ingest data from API endpoint of ONS GeoPortal.
 
         Parameters
@@ -151,6 +151,11 @@ class StaticDataIngest:
         ------
         FileExistsError
             When boundaries data already exists at given filepath
+
+        Returns
+        -------
+        gdf: gpd.GeoDataFrame
+            Tabular representation of geoportal data.
 
         """
         if url is None:
@@ -199,7 +204,7 @@ class StaticDataIngest:
                 "The file you are downloading to already exists (bounds)"
             )
 
-        return None
+        return gdf
 
     def ingest_bus_timetable(self, region: str = None) -> None:
         """Ingest bus timetable for a single region.
