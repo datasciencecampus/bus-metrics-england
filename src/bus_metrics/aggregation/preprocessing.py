@@ -258,13 +258,17 @@ def convert_unix_to_time_string(
     return df
 
 
-def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
+def build_stops(
+    output: str = "polars", stops_data: str = "data/resources/gb_stops.csv"
+) -> pl.DataFrame | pd.DataFrame:
     """Read in gb_stops file and outouts as DataFrame.
 
     Parameters
     ----------
     output : str
         Output type, polars or pandas DataFrame. (Defaults "polars").
+    stops_data : str
+        Filepath to raw NAPTAN stops data locally.
 
     Returns
     -------
@@ -274,7 +278,7 @@ def build_stops(output: str = "polars") -> pl.DataFrame | pd.DataFrame:
     """
     # import NapTAN data
     stops = pl.read_csv(
-        "data/resources/gb_stops.csv",
+        stops_data,
         ignore_errors=True,
         dtypes={"stop_id": pl.Utf8},  # noqa: E501
     )

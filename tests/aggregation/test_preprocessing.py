@@ -7,6 +7,7 @@ from src.bus_metrics.aggregation.preprocessing import (
     unzip_GTFS,
     polars_robust_load_csv,
     convert_unix_to_time_string,
+    build_stops,
 )
 
 pytest_plugins = ["tests.aggregation.test_fixtures"]
@@ -137,3 +138,14 @@ def test_convert_unix_to_time_string():
         .to_list()
         == expected_values
     )
+
+
+def test_build_stops():
+    """Simple test checking processed stops data."""
+    output = build_stops(
+        output="polars", stops_data="tests/data/stops_sample.csv"
+    )
+    assert type(output) == pl.DataFrame
+    assert output.columns == ["stop_id", "stop_lat", "stop_lon"]
+    assert output[0, "stop_lat"] == 51.44902101682718
+    assert output[0, "stop_lon"] == -2.5857890312830363
