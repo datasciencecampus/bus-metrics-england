@@ -45,7 +45,7 @@ def _build_lookup_tool(
     return df
 
 
-def main() -> pd.DataFrame:
+def create() -> pd.DataFrame:
     """Download and process boundaries data. Label stops.
 
     Returns
@@ -93,4 +93,4 @@ def main() -> pd.DataFrame:
 
 
 if __name__ == "__main__":
-    main()
+    create()

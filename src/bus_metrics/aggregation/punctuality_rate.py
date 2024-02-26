@@ -1,6 +1,7 @@
 """Class of tools required to reaggregate bus metrics by geographies."""
 import pandas as pd
 import toml
+from datetime import datetime
 
 
 class AggregationTool:
@@ -32,18 +33,20 @@ class AggregationTool:
 
     def __init__(
         self,
-        stop_level_punctuality: str = "data/stop_level_punctuality/synth_punc.csv",  # noqa: E501
-        geography_lookup_table: str = "data/resources/geography_lookup_table.csv",  # noqa: E501
         config: dict = toml.load("src/bus_metrics/setup/ingest.toml"),
+        geography_lookup_table: str = "data/resources/geography_lookup_table.csv",  # noqa: E501
         geography: str = "lsoa",
         outdir: str = "outputs/punctuality",
     ) -> None:
 
-        self.stop_level_punctuality = stop_level_punctuality
+        self.region = config["region_to_analyse"]
+        self.date = datetime.now().strftime("%Y%m%d")
+        self.stop_level_punctuality: str = f"data/stop_level_punctuality/punctuality_by_stop_{self.region}_{self.date}.csv"  # noqa: E501
         self.geography_lookup_table = geography_lookup_table
         self.geography = geography
-        self.code = config["boundaries"][self.geography]["code"]
-        self.name = config["boundaries"][self.geography]["name"]
+        self.config = config
+        self.code = self.config["boundaries"][self.geography]["code"]
+        self.name = self.config["boundaries"][self.geography]["name"]
         self.outdir = outdir
 
     def merge_geographies_with_stop_punctuality(
@@ -97,10 +100,13 @@ class AggregationTool:
             and punctuality rate aggregated by geography.
 
         """
+        code = self.config["boundaries"][self.geography]["code"]
+        name = self.config["boundaries"][self.geography]["name"]
+
         labelled["punctual_service_stops"] = (
             labelled["service_stops"] * labelled["punctuality_rate"]
         ).astype(int)
-        df = labelled.groupby([self.code, self.name]).agg(
+        df = labelled.groupby([code, name]).agg(
             {"service_stops": "sum", "punctual_service_stops": "sum"}
         )
         df["punctuality_rate"] = (
@@ -120,7 +126,8 @@ class AggregationTool:
             and punctuality rate aggregated by geography.
 
         """
+        date_time = datetime.now().strftime("%Y%m%d")
         df = self.merge_geographies_with_stop_punctuality()
         df = self._reaggregate_punctuality(df)
-        df.to_csv(f"{self.outdir}/{self.geography}.csv")
+        df.to_csv(f"{self.outdir}/{self.geography}_{date_time}.csv")
         return df
