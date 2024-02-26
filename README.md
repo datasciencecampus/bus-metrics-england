@@ -30,10 +30,11 @@ You will also require a `.env` file in the format:
 BODS_API_KEY="<api key for the BODS service>"
 ```
 
-Data ingest scripts are now available. All resources (including geography and timetable data) and a sample 1 minute cut of real time data can be obtained:
+Data ingest scripts are now available. All resources (including geography and timetable data) and a sample 1 minute cut of real time data can be obtained. Punctuality can be acquired for any of 5 geographies using the `--geography` attribute:
 
 ```shell
 python setup.py
+python run.py -g lsoa
 ```
 
 ### Pre-commit actions
