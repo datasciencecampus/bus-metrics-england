@@ -34,6 +34,11 @@ Data ingest scripts are now available. All resources (including geography and ti
 
 ```shell
 python setup.py
+
+# to be merged into setup
+python src/bus_metrics/setup/build_lookup.py
+python src/bus_metrics/aggregation/build_schedules.py
+
 python run.py -g lsoa
 ```
 
