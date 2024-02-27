@@ -14,9 +14,15 @@ def main():
 
     """
     parser = argparse.ArgumentParser()
-    parser.add_argument("-g", "--geography", help="which geography")
+    parser.add_argument("-g", "--geography", nargs="?", help="which geography")
     args = parser.parse_args()
-    aTool = AggregationTool(geography=args.geography)
+
+    if not args.geography:
+        geography = "lsoa"
+    else:
+        geography = args.geography
+
+    aTool = AggregationTool(geography=geography)
     df = aTool.punctuality_by_geography()
 
     return df
