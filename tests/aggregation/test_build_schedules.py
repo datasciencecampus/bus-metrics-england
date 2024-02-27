@@ -73,9 +73,9 @@ def test_split_realtime_data(test_class_instantiate):
     sample_df = pl.concat([sample_df, new_row])
 
     # Use class mathod to test splitting of data.
-    labelled, unlalebbed = test_class_instantiate.split_realtime_data(
+    labelled, unlabelled = test_class_instantiate.split_realtime_data(
         sample_df
     )
 
     assert len(labelled) == 6
-    assert len(unlalebbed) == 1
+    assert len(unlabelled) == 1

@@ -1,5 +1,5 @@
 <!--- Badges start --->
-<img src="https://img.shields.io/badge/repo%20status-in%20development%20(caution)-red" alt="Repository status is still in development (caution required)"/>
+<img src="https://img.shields.io/badge/repo%20status-in%20development%20(caution)-red" alt="Repository status is still in development (caution required)"/> <a href="https://codecov.io/gh/datasciencecampus/bus-metrics-england" > <img src="https://codecov.io/gh/datasciencecampus/bus-metrics-england/branch/dev/graph/badge.svg?token=hnkFyxDgV7"/></a>
 <!--- Badges end --->
 
 <img src="https://github.com/datasciencecampus/awesome-campus/blob/master/ons_dsc_logo.png">
@@ -30,10 +30,15 @@ You will also require a `.env` file in the format:
 BODS_API_KEY="<api key for the BODS service>"
 ```
 
-Data ingest scripts are now available. All resources (including geography and timetable data) and a sample 1 minute cut of real time data can be obtained:
+Data ingest scripts are now available. All resources (including geography and timetable data) and a sample 1 minute cut of real time data can be obtained. Punctuality can be acquired for any of 5 geographies using the `--geography` attribute:
 
 ```shell
 python setup.py
+
+# to be merged into setup
+python src/bus_metrics/aggregation/build_schedules.py
+
+python run.py -g lsoa
 ```
 
 ### Pre-commit actions

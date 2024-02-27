@@ -137,7 +137,7 @@ class StaticDataIngest:
 
     def ingest_data_from_geoportal(
         self, url: str = None, filename: str = None
-    ) -> None:
+    ) -> gpd.GeoDataFrame:
         """Ingest data from API endpoint of ONS GeoPortal.
 
         Parameters
@@ -152,6 +152,11 @@ class StaticDataIngest:
         FileExistsError
             When boundaries data already exists at given filepath
 
+        Returns
+        -------
+        gdf: gpd.GeoDataFrame
+            Tabular representation of geoportal data.
+
         """
         if url is None:
             url = self.boundaries[self.geography]["url"]
@@ -164,20 +169,32 @@ class StaticDataIngest:
             content = response.json()
             gdf = self._extract_geodata(content)
 
-            more_pages = content["properties"]["exceededTransferLimit"]
-            offset = len(gdf)  # rows in initial cut
+            # if transfer limit element exists, continue to call
+            # until all rows ingested
+            # otherwise, ingest in one block
+            try:
+                # GeoPortal transfer limit
+                more_pages = content["properties"]["exceededTransferLimit"]
+                offset = len(gdf)  # rows in initial cut
 
-            while more_pages:
-                query_params["resultOffset"] += offset
-                response = self._connect_to_endpoint(url)
-                content = response.json()
-                add_gdf = self._extract_geodata(content)
-                gdf = pd.concat([gdf, add_gdf])
-                try:
-                    more_pages = content["properties"]["exceededTransferLimit"]
-                except KeyError:
-                    # exceededTransferLimit field no longer present
-                    more_pages = False
+                while more_pages:
+                    query_params["resultOffset"] += offset
+                    response = self._connect_to_endpoint(url)
+                    content = response.json()
+                    add_gdf = self._extract_geodata(content)
+                    gdf = pd.concat([gdf, add_gdf])
+
+                    # test if further rows beyond limit are
+                    # yet to be downloaded
+                    try:
+                        more_pages = content["properties"][
+                            "exceededTransferLimit"
+                        ]
+                    except KeyError:
+                        # exceededTransferLimit field no longer present
+                        more_pages = False
+            except KeyError:
+                pass
 
             gdf = gdf.reset_index(drop=True)
             gdf.to_file(filename, driver="GeoJSON")
@@ -187,7 +204,7 @@ class StaticDataIngest:
                 "The file you are downloading to already exists (bounds)"
             )
 
-        return None
+        return gdf
 
     def ingest_bus_timetable(self, region: str = None) -> None:
         """Ingest bus timetable for a single region.
