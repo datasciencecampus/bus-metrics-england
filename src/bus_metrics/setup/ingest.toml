@@ -31,7 +31,7 @@ geography = "lsoa"
 
 [boundaries.lad]   # Dec 2023
 "filename" = "data/resources/LAD_boundaries.geojson"
-"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Local_Authority_Districts_December_2023_Boundaries_UK_BSC/FeatureServer/0/query"
+"url" = "https://services1.arcgis.com/ESMARspQHYMw9BZ9/arcgis/rest/services/Local_Authority_Districts_December_2023_Boundaries_UK_BFC/FeatureServer/0/query"
 "code" = "LAD23CD"
 "name" = "LAD23NM"
 
