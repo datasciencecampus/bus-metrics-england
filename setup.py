@@ -2,7 +2,8 @@
 from src.bus_metrics.setup.ingest_static_data import StaticDataIngest
 from src.bus_metrics.setup.ingest_realtime_data import RealtimeDataIngest
 from src.bus_metrics.setup.build_lookup import create
-from src.bus_metrics.aggregation.build_schedules import Schedule_Builder
+
+# from src.bus_metrics.aggregation.build_schedules import Schedule_Builder
 from datetime import datetime
 import logging
 import os
@@ -38,7 +39,7 @@ def data_folder(logger: logging.Logger) -> None:
 
 
 if __name__ == "__main__":  # noqa: C901
-    session_name = f"ingest_{format(scriptStartTime, '%Y_%m_%d_%H:%M')}"
+    session_name = f"ingest_{format(datetime.now(), '%Y_%m_%d_%H:%M')}"
     logger = logging.getLogger(__name__)
     log_fmt = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     logging.basicConfig(
@@ -72,6 +73,10 @@ if __name__ == "__main__":  # noqa: C901
         pass
 
     if ingest_toml["download_realtime_sample"]:
+
+        scriptStartTime = datetime.now()
+        scriptStartTimeUnix = time.mktime(scriptStartTime.timetuple())
+
         # TODO: more articulate ways of triggering every 10 seconds
         while (
             time.mktime(datetime.now().timetuple()) < scriptStartTimeUnix + 60
@@ -98,14 +103,15 @@ if __name__ == "__main__":  # noqa: C901
         logger.warning(f"Build error: {e}")
         pass
 
-    try:
-        schedule_builder = Schedule_Builder()
-        logger.info("Preparing punctuality data by stop")
-        # TODO: naming/access of method to be improved
-        schedule_builder.run()
-    except Exception as e:
-        logger.warning(f"Build error: {e}")
-        pass
+    # build_schedules.py executed separately for now
+    # try:
+    #     schedule_builder = Schedule_Builder()
+    #     logger.info("Preparing punctuality data by stop")
+    #     # TODO: naming/access of method to be improved
+    #     schedule_builder.run()
+    # except Exception as e:
+    #     logger.warning(f"Build error: {e}")
+    #     pass
 
     logger.info("-----------------------------")
     logger.info("-------SETUP COMPLETED-------")
