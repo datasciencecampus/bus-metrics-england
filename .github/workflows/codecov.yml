@@ -27,6 +27,15 @@ jobs:
         pip install coverage[toml]
         pip install -e .
 
+    - name: pre-commit
+      uses: actions/cache@0c45773b623bea8c8e75f6c82b208c3cf94ea4f9 # sha for v4.0.2
+      with:
+        path: ~/.cache/pre-commit/
+        key: pre-commit-4|${{ env.pythonLocation }}|${{ hashFiles('.pre-commit-config.yaml') }}
+    - run: |
+        pre-commit install
+        pre-commit run --show-diff-on-failure --color=always --all-files
+
     - name: Generate Report
       run: |
         coverage run -m pytest
