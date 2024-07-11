@@ -13,7 +13,7 @@
 This repo aims to provide other developers with tools to interrogate bus services in England by combining realtime (from the Bus Open Data Service) and timetable data (from Department for Transport). We aim to build flexibility for analysis at different geography levels and across a range of metrics, including service coverage, punctuality and quality of service (e.g. excess wait time).
 
 ## Installation
-The project requires specific versions of some packages so it is recommended to set up a virtual environment, using both **venv** and **pip**:
+This project was developed in a Python 3.11 environment; this is recommended. Specific versions of some packages are required so it is recommended to set up a virtual environment, using both **venv** and **pip**:
 
 ```shell
 python3.11 -m venv <name>
