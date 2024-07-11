@@ -24,3 +24,9 @@ source = [
     "./src"
 ]
 omit = ["**/__init__.py"]
+
+# exempt "if __name__=='__main__'" blocks from CI
+[tool.coverage.report]
+ exclude_lines = [
+     "if __name__ == .__main__.:"
+ ]
